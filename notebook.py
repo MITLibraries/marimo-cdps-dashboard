@@ -466,14 +466,14 @@ def _(cdps_df, go, mo):
     file_counts_display = mo.vstack(
         [
             mo.md("#### File count by bucket"),
-            mo.ui.table(file_bucket_data),
+            mo.ui.table(file_bucket_data, selection=None),
             mo.md("#### File count by status"),
-            mo.ui.table(file_status_data),
+            mo.ui.table(file_status_data, selection=None),
             mo.md("#### File count by bucket and status"),
-            mo.ui.table(file_bucket_status_data),
+            mo.ui.table(file_bucket_status_data, selection=None),
             mo.md("#### File count by preservation level"),
             mo.ui.plotly(file_preservation_chart),
-            mo.ui.table(file_preservation_data),
+            mo.ui.table(file_preservation_data, selection=None),
         ],
         gap=1,
     )
@@ -521,15 +521,15 @@ def _(cdps_df, convert_size, mo):
     file_storage_display = mo.vstack(
         [
             mo.md("#### Largest file"),
-            mo.ui.table(largest_file_data),
+            mo.ui.table(largest_file_data, selection=None),
             mo.md("#### Largest metadata file"),
-            mo.ui.table(largest_metadata_file_data),
+            mo.ui.table(largest_metadata_file_data, selection=None),
             mo.md("#### Top 10 largest files"),
-            mo.ui.table(top10_largest_files_data),
+            mo.ui.table(top10_largest_files_data, selection=None),
             mo.md("#### Mean file storage size"),
-            mo.ui.table(mean_file_size),
+            mo.ui.table(mean_file_size, selection=None),
             mo.md("#### Mean file storage size by status"),
-            mo.ui.table(mean_file_size_by_status),
+            mo.ui.table(mean_file_size_by_status, selection=None),
         ],
         gap=1,
     )
@@ -586,14 +586,14 @@ def _(cdps_df, convert_size, go, mo):
     file_extensions_mimetypes_display = mo.vstack(
         [
             mo.md("#### File count by file extension"),
-            mo.ui.table(file_extensions_file_count_data),
+            mo.ui.table(file_extensions_file_count_data, selection=None),
             mo.md("#### File count by mimetype"),
-            mo.ui.table(mimetype_file_count_data),
+            mo.ui.table(mimetype_file_count_data, selection=None),
             mo.md("#### Storage size by mimetype"),
-            mo.ui.table(mimetype_size_data),
+            mo.ui.table(mimetype_size_data, selection=None),
             mo.md("#### Storage size for top 10 mimetypes"),
             mo.ui.plotly(top10_mimetype_chart),
-            mo.ui.table(top10_mimetype_data),
+            mo.ui.table(top10_mimetype_data, selection=None),
         ],
         gap=1,
     )
@@ -616,7 +616,7 @@ def _(cdps_df, mo):
     file_data_points_display = mo.vstack(
         [
             mo.md("#### Content files vs. metadata files "),
-            mo.ui.table(content_vs_metadata_data),
+            mo.ui.table(content_vs_metadata_data, selection=None),
         ],
         gap=1,
     )
@@ -688,15 +688,15 @@ def _(cdps_df, convert_size, go, mo):
         [
             mo.md("#### Storage size by bucket"),
             mo.ui.plotly(storage_bucket_chart),
-            mo.ui.table(storage_bucket_data),
+            mo.ui.table(storage_bucket_data, selection=None),
             mo.md("#### Storage size by status"),
             mo.ui.plotly(storage_status_chart),
-            mo.ui.table(storage_status_data),
+            mo.ui.table(storage_status_data, selection=None),
             mo.md("#### Storage size by status and bucket"),
-            mo.ui.table(storage_status_bucket_data),
+            mo.ui.table(storage_status_bucket_data, selection=None),
             mo.md("#### Storage size by preservation level"),
             mo.ui.plotly(storage_preservation_chart),
-            mo.ui.table(storage_preservation_data),
+            mo.ui.table(storage_preservation_data, selection=None),
         ],
         gap=1,
     )
@@ -749,15 +749,15 @@ def _(cdps_df, convert_size, mo):
     aip_display = mo.vstack(
         [
             mo.md("#### Total AIP count"),
-            mo.ui.table(total_aip_count),
+            mo.ui.table(total_aip_count, selection=None),
             mo.md("#### AIP count by bucket"),
-            mo.ui.table(aip_count_by_bucket_data),
+            mo.ui.table(aip_count_by_bucket_data, selection=None),
             mo.md("#### Largest AIP by storage size"),
-            mo.ui.table(largest_aip_by_size_data),
+            mo.ui.table(largest_aip_by_size_data, selection=None),
             mo.md("#### Largest AIP by file count"),
-            mo.ui.table(largest_aip_by_file_count_data),
+            mo.ui.table(largest_aip_by_file_count_data, selection=None),
             mo.md("#### Mean AIP statistics"),
-            mo.ui.table(mean_aip_statistics),
+            mo.ui.table(mean_aip_statistics, selection=None),
         ],
         gap=1,
     )
@@ -818,11 +818,11 @@ def _(cdps_df, convert_size, go, mo):
         [
             mo.md("#### Storage size by born-digital vs. digitized"),
             mo.ui.plotly(born_digital_digitized_size_chart),
-            mo.ui.table(born_digital_digitized_size_data),
+            mo.ui.table(born_digital_digitized_size_data, selection=None),
             mo.md("#### Storage size by born-digital vs. digitized and bucket"),
-            mo.ui.table(born_digital_digitized_bucket_size_data),
+            mo.ui.table(born_digital_digitized_bucket_size_data, selection=None),
             mo.md("#### File count by born-digital vs. digitized"),
-            mo.ui.table(born_digital_digitized_file_count_data),
+            mo.ui.table(born_digital_digitized_file_count_data, selection=None),
         ],
         gap=1,
     )
@@ -864,10 +864,10 @@ def _(cdps_df, convert_size, go, mo):
     image_av_display = mo.vstack(
         [
             mo.md("#### Still image, audiovisual, and everything else by file count"),
-            mo.ui.table(av_file_count_data),
+            mo.ui.table(av_file_count_data, selection=None),
             mo.md("#### Still image, audiovisual, and everything else by storage size"),
             mo.ui.plotly(av_storage_size_chart),
-            mo.ui.table(av_storage_size_data),
+            mo.ui.table(av_storage_size_data, selection=None),
         ],
         gap=1,
     )
@@ -933,14 +933,14 @@ def _(cdps_df, convert_size, go, mo):
     original_files_display = mo.vstack(
         [
             mo.md("#### Original files by file extension"),
-            mo.ui.table(original_files_extension_file_count_data),
+            mo.ui.table(original_files_extension_file_count_data, selection=None),
             mo.md("#### Original files by mimetype"),
-            mo.ui.table(original_files_mimetype_file_count_data),
+            mo.ui.table(original_files_mimetype_file_count_data, selection=None),
             mo.md("#### Original files by mimetype and storage size"),
-            mo.ui.table(original_files_mimetype_size_data),
+            mo.ui.table(original_files_mimetype_size_data, selection=None),
             mo.md("#### Storage size for top 10 original file mimetypes"),
             mo.ui.plotly(top10_original_files_mimetype_chart),
-            mo.ui.table(top10_original_files_mimetype_size_data),
+            mo.ui.table(top10_original_files_mimetype_size_data, selection=None),
         ],
         gap=1,
     )
