@@ -11,7 +11,7 @@
 
 import marimo
 
-__generated_with = "0.18.0"
+__generated_with = "0.21.1"
 app = marimo.App(width="medium")
 
 
@@ -24,15 +24,13 @@ def _():
 
 @app.cell
 def _(mo):
-    mo.md(
-        """
+    mo.md("""
     # CDPS Dashboard
-    """
-    )
+    """)
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _():
     # Functions
     import io
@@ -218,6 +216,20 @@ def _():
         )
         return dataframe
 
+    def is_av_image(dataframe: pd.DataFrame) -> pd.DataFrame:
+        """Identifies AV or Image content based on mimetype."""
+        dataframe.loc[:, "is_av_image"] = np.where(
+            dataframe["mimetype"].str.contains("audio")
+            | dataframe["mimetype"].str.contains("video"),
+            "AV",
+            np.where(
+                dataframe["mimetype"].str.contains("image"),
+                "Still Image",
+                "Everything else",
+            ),
+        )
+        return dataframe
+
     return (
         ClientError,
         boto3,
@@ -225,6 +237,7 @@ def _():
         datetime,
         go,
         io,
+        is_av_image,
         is_digitized_aip,
         is_metadata,
         is_normalized_file,
@@ -243,7 +256,7 @@ def _():
     )
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(ClientError, boto3, logger, os, re, urlparse):
     # Get symlink files and dates as dict
     s3 = boto3.client("s3")
@@ -283,7 +296,7 @@ def _(ClientError, boto3, logger, os, re, urlparse):
     return s3, symlink_dict
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(datetime, mo, timedelta):
     # Select date from calendar element
 
@@ -293,7 +306,7 @@ def _(datetime, mo, timedelta):
     return (date_selector,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(date_selector, pd):
     # Retrieve parquet files from the selected date
 
@@ -301,7 +314,7 @@ def _(date_selector, pd):
     return (selected_date,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _():
     # Cache of parquet files URIs by date for efficient recall of previously used dates
 
@@ -309,7 +322,7 @@ def _():
     return (parquet_file_uri_cache,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(
     ClientError,
     io,
@@ -358,6 +371,7 @@ def _(
             logger.exception("Client error while retrieving parquet file:")
             raise
         parquet_df = pd.read_parquet(io.BytesIO(s3_object["Body"].read()))
+        parquet_df.loc[:, "parquet_file"] = parquet_key.split("/")[-1]
         parquet_dfs.append(parquet_df)
 
     # Concatenate parquet dataframes
@@ -376,9 +390,10 @@ def _(
     return (current_df,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(
     current_df,
+    is_av_image,
     is_digitized_aip,
     is_metadata,
     is_normalized_file,
@@ -400,34 +415,35 @@ def _(
         .pipe(is_replica)
         .pipe(is_normalized_file)
         .pipe(set_status)
+        .pipe(is_av_image)
     )
     return (cdps_df,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(cdps_df, go, mo):
-    # Files
+    # File counts
 
     # Data views generated from filtered dataframes
-    file_bucket = (
+    file_bucket_data = (
         cdps_df.groupby("bucket")
         .size()
         .to_frame("file count")
         .sort_values(by="bucket", ascending=False)
     )
-    file_status = (
+    file_status_data = (
         cdps_df.groupby("status")
         .size()
         .to_frame("file count")
         .sort_values(by="status", ascending=False)
     )
-    file_bucket_status = (
+    file_bucket_status_data = (
         cdps_df.groupby(["bucket", "status"])
         .size()
         .to_frame("file count")
         .sort_values(by="bucket", ascending=False)
     )
-    file_preservation = (
+    file_preservation_data = (
         cdps_df.groupby("preservation_level")
         .size()
         .to_frame("file count")
@@ -435,163 +451,503 @@ def _(cdps_df, go, mo):
     )
 
     # Create pie chart for presevation level
-    preservation_data = file_preservation.reset_index()
-    preservation_chart = go.Figure(
+    file_preservation_data = file_preservation_data.reset_index()
+    file_preservation_chart = go.Figure(
         data=[
             go.Pie(
-                labels=preservation_data["preservation_level"],
-                values=preservation_data["file count"],
+                labels=file_preservation_data["preservation_level"],
+                values=file_preservation_data["file count"],
                 title="File count by preservation level",
             )
         ]
     )
-    preservation_chart.update_layout(height=400, width=500)
 
     # Organizes the data views into tables vertically with labels
-    files_display = mo.vstack(
+    file_counts_display = mo.vstack(
         [
             mo.md("#### File count by bucket"),
-            mo.ui.table(file_bucket),
+            mo.ui.table(file_bucket_data, selection=None),
             mo.md("#### File count by status"),
-            mo.ui.table(file_status),
+            mo.ui.table(file_status_data, selection=None),
             mo.md("#### File count by bucket and status"),
-            mo.ui.table(file_bucket_status),
+            mo.ui.table(file_bucket_status_data, selection=None),
             mo.md("#### File count by preservation level"),
-            mo.ui.plotly(preservation_chart),
-            mo.ui.table(file_preservation),
+            mo.ui.plotly(file_preservation_chart),
+            mo.ui.table(file_preservation_data, selection=None),
         ],
         gap=1,
     )
-    return (files_display,)
+    return (file_counts_display,)
 
 
-@app.cell
-def _(mo):
-    # Storage
-
-    # Data views generated from filtered dataframes
-    storage = {"not implemented": "not implemented"}
-
-    # Organizes the data views into tables vertically with labels
-    storage_display = mo.vstack(
-        [mo.ui.table(storage)],
-        gap=1,
-    )
-    return (storage_display,)
-
-
-@app.cell
-def _(cdps_df, mo):
-    # File extension and mimetypes
-
-    _file_extensions = (
-        cdps_df.groupby("extension")
-        .size()
-        .to_frame("file count")
-        .sort_values(by="file count", ascending=False)
-    )
-
-    # Data views generated from filtered dataframes
-    file_extensions_mimetypes = {"not implemented": "not implemented"}
-
-    # Organizes the data views into tables vertically with labels
-    file_extensions_mimetypes_display = mo.vstack(
-        [mo.ui.table(file_extensions_mimetypes)],
-        gap=1,
-    )
-    return (file_extensions_mimetypes_display,)
-
-
-@app.cell
+@app.cell(hide_code=True)
 def _(cdps_df, convert_size, mo):
-    # File datapoints
+    # File storage
 
     # Data views generated from filtered dataframes
-    _file_metadata = (
-        cdps_df.groupby("is_metadata")
-        .size()
-        .rename(index={False: "content files", True: "metadata files"})
-        .to_frame("file count")
-    )
+    largest_file = cdps_df.loc[cdps_df["size"].idxmax()]
+    largest_file_data = {
+        "File name": largest_file["file"],
+        "Storage size": convert_size(largest_file["size"]),
+        "Bag": largest_file["bagname"],
+        "Parquet file": largest_file["parquet_file"],
+        "File path": largest_file["filepath"],
+    }
 
-    _file_storage = (
+    metadata_files_data = cdps_df[cdps_df["status"] == "metadata"]
+    largest_metadata_file = metadata_files_data.loc[metadata_files_data["size"].idxmax()]
+    largest_metadata_file_data = {
+        "File name": largest_metadata_file["file"],
+        "Storage size": convert_size(largest_metadata_file["size"]),
+        "Bag": largest_metadata_file["bagname"],
+        "Parquet file": largest_metadata_file["parquet_file"],
+        "File path": largest_metadata_file["filepath"],
+    }
+
+    top10_largest_files_data = (
         cdps_df.sort_values(by="size", ascending=False)
         .loc[:, ["file", "size"]]
         .assign(size=lambda x: x["size"].apply(convert_size))
         .reset_index(drop=True)[:10]
     )
 
-    file_datapoints = {"not implemented": "not implemented"}
+    mean_file_size = {"Mean file storage size": convert_size(cdps_df["size"].mean())}
+
+    mean_file_size_by_status = (
+        cdps_df.groupby("status")["size"].mean().apply(convert_size).to_dict()
+    )
 
     # Organizes the data views into tables vertically with labels
-    file_datapoints_display = mo.vstack(
-        [mo.ui.table(file_datapoints)],
+    file_storage_display = mo.vstack(
+        [
+            mo.md("#### Largest file"),
+            mo.ui.table(largest_file_data, selection=None),
+            mo.md("#### Largest metadata file"),
+            mo.ui.table(largest_metadata_file_data, selection=None),
+            mo.md("#### Top 10 largest files"),
+            mo.ui.table(top10_largest_files_data, selection=None),
+            mo.md("#### Mean file storage size"),
+            mo.ui.table(mean_file_size, selection=None),
+            mo.md("#### Mean file storage size by status"),
+            mo.ui.table(mean_file_size_by_status, selection=None),
+        ],
         gap=1,
     )
-    return (file_datapoints_display,)
+    return (file_storage_display,)
 
 
-@app.cell
-def _(mo):
+@app.cell(hide_code=True)
+def _(cdps_df, convert_size, go, mo):
+    # File extension and mimetypes
+
+    # Data views generated from filtered dataframes
+    file_extensions_file_count_data = (
+        cdps_df.groupby("extension")
+        .size()
+        .to_frame("file count")
+        .sort_values(by="file count", ascending=False)
+    )
+
+    mimetype_file_count_data = (
+        cdps_df.groupby("mimetype")
+        .size()
+        .to_frame("file count")
+        .sort_values(by="file count", ascending=False)
+    )
+
+    mimetype_size_data = (
+        cdps_df.groupby("mimetype")["size"]
+        .sum()
+        .to_frame("bytes")
+        .sort_values(by="bytes", ascending=False)
+    )
+    mimetype_size_data["size"] = mimetype_size_data["bytes"].apply(
+        lambda x: convert_size(x)
+    )
+    mimetype_size_data = mimetype_size_data.drop("bytes", axis=1)
+
+    top10_mimetype_data = (
+        cdps_df.groupby("mimetype")["size"].sum().sort_values(ascending=False).head(10)
+    )
+    top10_mimetype_data = top10_mimetype_data.reset_index()
+
+    # Create pie chart for top 10 mimetypes
+    top10_mimetype_chart = go.Figure(
+        data=[
+            go.Pie(
+                labels=top10_mimetype_data["mimetype"],
+                values=top10_mimetype_data["size"],
+                title="Total storage size for top 10 mimetypes",
+            )
+        ]
+    )
+
+    # Organizes the data views into tables vertically with labels
+    file_extensions_mimetypes_display = mo.vstack(
+        [
+            mo.md("#### File count by file extension"),
+            mo.ui.table(file_extensions_file_count_data, selection=None),
+            mo.md("#### File count by mimetype"),
+            mo.ui.table(mimetype_file_count_data, selection=None),
+            mo.md("#### Storage size by mimetype"),
+            mo.ui.table(mimetype_size_data, selection=None),
+            mo.md("#### Storage size for top 10 mimetypes"),
+            mo.ui.plotly(top10_mimetype_chart),
+            mo.ui.table(top10_mimetype_data, selection=None),
+        ],
+        gap=1,
+    )
+    return (file_extensions_mimetypes_display,)
+
+
+@app.cell(hide_code=True)
+def _(cdps_df, mo):
+    # File data points
+
+    # Data views generated from filtered dataframes
+    content_vs_metadata_data = (
+        cdps_df.groupby("is_metadata")
+        .size()
+        .rename(index={False: "content files", True: "metadata files"})
+        .to_frame("file count")
+    )
+
+    # Organizes the data views into tables vertically with labels
+    file_data_points_display = mo.vstack(
+        [
+            mo.md("#### Content files vs. metadata files "),
+            mo.ui.table(content_vs_metadata_data, selection=None),
+        ],
+        gap=1,
+    )
+    return (file_data_points_display,)
+
+
+@app.cell(hide_code=True)
+def _(cdps_df, convert_size, go, mo):
+    # Storage
+
+    # Data views generated from filtered dataframes
+    storage_bucket = cdps_df.groupby("bucket")["size"].sum().sort_values(ascending=True)
+    storage_bucket_data = storage_bucket.reset_index()
+    storage_bucket_chart = go.Figure(
+        data=[
+            go.Pie(
+                labels=storage_bucket_data["bucket"],
+                values=storage_bucket_data["size"],
+                title="Storage size by bucket",
+            )
+        ]
+    )
+    storage_bucket_data = storage_bucket_data.assign(
+        size=lambda x: x["size"].apply(convert_size)
+    )
+
+    storage_status = cdps_df.groupby("status")["size"].sum().sort_values(ascending=True)
+    storage_status_data = storage_status.reset_index()
+    storage_status_chart = go.Figure(
+        data=[
+            go.Pie(
+                labels=storage_status_data["status"],
+                values=storage_status_data["size"],
+                title="Storage size by status",
+            )
+        ]
+    )
+    storage_status_data = storage_status_data.assign(
+        size=lambda x: x["size"].apply(convert_size)
+    )
+
+    storage_status_bucket = (
+        cdps_df.groupby(["status", "bucket"])["size"].sum().sort_values(ascending=True)
+    )
+    storage_status_bucket_data = storage_status_bucket.reset_index()
+    storage_status_bucket_data = storage_status_bucket_data.assign(
+        size=lambda x: x["size"].apply(convert_size)
+    )
+
+    storage_preservation = (
+        cdps_df.groupby("preservation_level")["size"].sum().sort_values(ascending=True)
+    )
+    storage_preservation_data = storage_preservation.reset_index()
+    storage_preservation_chart = go.Figure(
+        data=[
+            go.Pie(
+                labels=storage_preservation_data["preservation_level"],
+                values=storage_preservation_data["size"],
+                title="Size by preservation level",
+            )
+        ]
+    )
+    storage_preservation_data = storage_preservation_data.assign(
+        size=lambda x: x["size"].apply(convert_size)
+    )
+
+    # Organizes the data views into tables vertically with labels
+    storage_display = mo.vstack(
+        [
+            mo.md("#### Storage size by bucket"),
+            mo.ui.plotly(storage_bucket_chart),
+            mo.ui.table(storage_bucket_data, selection=None),
+            mo.md("#### Storage size by status"),
+            mo.ui.plotly(storage_status_chart),
+            mo.ui.table(storage_status_data, selection=None),
+            mo.md("#### Storage size by status and bucket"),
+            mo.ui.table(storage_status_bucket_data, selection=None),
+            mo.md("#### Storage size by preservation level"),
+            mo.ui.plotly(storage_preservation_chart),
+            mo.ui.table(storage_preservation_data, selection=None),
+        ],
+        gap=1,
+    )
+    return (storage_display,)
+
+
+@app.cell(hide_code=True)
+def _(cdps_df, convert_size, mo):
     # AIPs
 
     # Data views generated from filtered dataframes
-    aips = {"not implemented": "not implemented"}
+    total_aip_count = {"Total AIP count": cdps_df["uuid"].nunique()}
+
+    aip_count_by_bucket_data = (
+        cdps_df.groupby(["bucket"])["uuid"]
+        .nunique()
+        .sort_values(ascending=False)
+        .reset_index()
+    )
+
+    aips_by_size_data = (
+        cdps_df.groupby("bagname")["size"]
+        .sum()
+        .sort_values(ascending=False)
+        .reset_index()
+    )
+    largest_aip_by_size_data = {
+        "Largest AIP by storage size": aips_by_size_data.loc[0].bagname,
+        "Storage size": convert_size(aips_by_size_data.iloc[0]["size"]),
+    }
+
+    aips_by_file_count_data = (
+        cdps_df.groupby("bagname")["size"]
+        .count()
+        .sort_values(ascending=False)
+        .to_frame("file_count")
+        .reset_index()
+    )
+    largest_aip_by_file_count_data = {
+        "Largest AIP by file count": aips_by_file_count_data.loc[0].bagname,
+        "File count": aips_by_file_count_data.iloc[0]["file_count"],
+    }
+
+    mean_aip_statistics = {
+        "Mean AIP file storage size": convert_size(aips_by_size_data["size"].mean()),
+        "Mean AIP file count": aips_by_file_count_data["file_count"].mean().round(0),
+    }
 
     # Organizes the data views into tables vertically with labels
     aip_display = mo.vstack(
-        [mo.ui.table(aips)],
+        [
+            mo.md("#### Total AIP count"),
+            mo.ui.table(total_aip_count, selection=None),
+            mo.md("#### AIP count by bucket"),
+            mo.ui.table(aip_count_by_bucket_data, selection=None),
+            mo.md("#### Largest AIP by storage size"),
+            mo.ui.table(largest_aip_by_size_data, selection=None),
+            mo.md("#### Largest AIP by file count"),
+            mo.ui.table(largest_aip_by_file_count_data, selection=None),
+            mo.md("#### Mean AIP statistics"),
+            mo.ui.table(mean_aip_statistics, selection=None),
+        ],
         gap=1,
     )
     return (aip_display,)
 
 
-@app.cell
-def _(mo):
-    # Digitized vs born-digital content
+@app.cell(hide_code=True)
+def _(cdps_df, convert_size, go, mo):
+    # Born-digital vs. digitized content
+
+    # NOTE: the DIGITIZED_BAG_IDS env variable is not implemented yet pending further
+    # discussion so these data points are not fully accurate
 
     # Data views generated from filtered dataframes
-    digitized_born_digital = {"not implemented": "not implemented"}
+    born_digital_digitized_size_data = (
+        cdps_df.groupby("is_digitized_AIP")["size"]
+        .sum()
+        .sort_values(ascending=False)
+        .reset_index()
+    )
+    born_digital_digitized_size_chart = go.Figure(
+        data=[
+            go.Pie(
+                labels=born_digital_digitized_size_data["is_digitized_AIP"],
+                values=born_digital_digitized_size_data["size"],
+                title="Storage size by born-digital vs. digitized",
+            )
+        ]
+    )
+    born_digital_digitized_size_data = born_digital_digitized_size_data.assign(
+        size=lambda x: x["size"].apply(convert_size)
+    )
+
+    born_digital_digitized_bucket_size_data = (
+        cdps_df.groupby(["is_digitized_AIP", "bucket"])["size"]
+        .sum()
+        .sort_values(ascending=True)
+    )
+    born_digital_digitized_bucket_size_data = (
+        born_digital_digitized_bucket_size_data.reset_index()
+    )
+    born_digital_digitized_bucket_size_data = (
+        born_digital_digitized_bucket_size_data.assign(
+            size=lambda x: x["size"].apply(convert_size)
+        )
+    )
+
+    born_digital_digitized_file_count_data = (
+        cdps_df.groupby("is_digitized_AIP")
+        .size()
+        .sort_values(ascending=False)
+        .to_frame("file count")
+        .reset_index()
+    )
 
     # Organizes the data views into tables vertically with labels
-    digitized_born_digital_display = mo.vstack(
-        [mo.ui.table(digitized_born_digital)],
+    born_digital_digitized_display = mo.vstack(
+        [
+            mo.md("#### Storage size by born-digital vs. digitized"),
+            mo.ui.plotly(born_digital_digitized_size_chart),
+            mo.ui.table(born_digital_digitized_size_data, selection=None),
+            mo.md("#### Storage size by born-digital vs. digitized and bucket"),
+            mo.ui.table(born_digital_digitized_bucket_size_data, selection=None),
+            mo.md("#### File count by born-digital vs. digitized"),
+            mo.ui.table(born_digital_digitized_file_count_data, selection=None),
+        ],
         gap=1,
     )
-    return (digitized_born_digital_display,)
+    return (born_digital_digitized_display,)
 
 
-@app.cell
-def _(mo):
-    # Image vs AV
+@app.cell(hide_code=True)
+def _(cdps_df, convert_size, go, mo):
+    # AV vs. Image
 
     # Data views generated from filtered dataframes
-    image_av = {"not implemented": "not implemented"}
+    av_file_count_data = (
+        cdps_df.groupby("is_av_image")["size"]
+        .count()
+        .to_frame("file count")
+        .reset_index()
+    )
+    av_file_count_data.sort_values(by="file count", ascending=False)
+
+    av_storage_size_data = (
+        cdps_df.groupby("is_av_image")["size"].sum().to_frame("bytes").reset_index()
+    )
+    av_storage_size_data.sort_values(by="bytes", ascending=False)
+    av_storage_size_data["size"] = av_storage_size_data["bytes"].apply(
+        lambda x: convert_size(x)
+    )
+    av_storage_size_chart = go.Figure(
+        data=[
+            go.Pie(
+                labels=av_storage_size_data["is_av_image"],
+                values=av_storage_size_data["bytes"],
+                title="Still image, audiovisual, and everything else by storage size",
+            )
+        ]
+    )
+    av_storage_size_data = av_storage_size_data.drop("bytes", axis=1)
 
     # Organizes the data views into tables vertically with labels
     image_av_display = mo.vstack(
-        [mo.ui.table(image_av)],
+        [
+            mo.md("#### Still image, audiovisual, and everything else by file count"),
+            mo.ui.table(av_file_count_data, selection=None),
+            mo.md("#### Still image, audiovisual, and everything else by storage size"),
+            mo.ui.plotly(av_storage_size_chart),
+            mo.ui.table(av_storage_size_data, selection=None),
+        ],
         gap=1,
     )
     return (image_av_display,)
 
 
-@app.cell
-def _(mo):
-    # Original vs duplicate files
+@app.cell(hide_code=True)
+def _(cdps_df, convert_size, go, mo):
+    # Original files
 
     # Data views generated from filtered dataframes
-    original_duplicate = {"not implemented": "not implemented"}
+    original_files = cdps_df[cdps_df["status"] == "original content"].copy()
+
+    original_files_extension_file_count_data = (
+        original_files.groupby("extension")
+        .size()
+        .to_frame("file count")
+        .sort_values(by="file count", ascending=False)
+        .reset_index()
+    )
+
+    original_files_mimetype_file_count_data = (
+        original_files.groupby("mimetype")
+        .size()
+        .to_frame("file count")
+        .sort_values(by="file count", ascending=False)
+        .reset_index()
+    )
+    original_files_mimetype_size_data = (
+        original_files.groupby("mimetype")["size"]
+        .sum()
+        .to_frame("bytes")
+        .sort_values(by="bytes", ascending=False)
+    )
+    original_files_mimetype_size_data["size"] = original_files_mimetype_size_data[
+        "bytes"
+    ].apply(lambda x: convert_size(x))
+
+    top10_original_files_mimetype_size_data = original_files_mimetype_size_data.head(10)
+    original_files_mimetype_size_data = original_files_mimetype_size_data.drop(
+        "bytes", axis=1
+    )
+
+    top10_original_files_mimetype_size_data = (
+        top10_original_files_mimetype_size_data.reset_index()
+    )
+
+    # Create pie chart for top 10 mimetypes
+    top10_original_files_mimetype_chart = go.Figure(
+        data=[
+            go.Pie(
+                labels=top10_original_files_mimetype_size_data["mimetype"],
+                values=top10_original_files_mimetype_size_data["bytes"],
+                title="Total storage size for top 10 original file mimetypes",
+            )
+        ]
+    )
+    top10_original_files_mimetype_size_data = (
+        top10_original_files_mimetype_size_data.drop("bytes", axis=1)
+    )
 
     # Organizes the data views into tables vertically with labels
-    original_duplicate_display = mo.vstack(
-        [mo.ui.table(original_duplicate)],
+    original_files_display = mo.vstack(
+        [
+            mo.md("#### Original files by file extension"),
+            mo.ui.table(original_files_extension_file_count_data, selection=None),
+            mo.md("#### Original files by mimetype"),
+            mo.ui.table(original_files_mimetype_file_count_data, selection=None),
+            mo.md("#### Original files by mimetype and storage size"),
+            mo.ui.table(original_files_mimetype_size_data, selection=None),
+            mo.md("#### Storage size for top 10 original file mimetypes"),
+            mo.ui.plotly(top10_original_files_mimetype_chart),
+            mo.ui.table(top10_original_files_mimetype_size_data, selection=None),
+        ],
         gap=1,
     )
-    return (original_duplicate_display,)
+    return (original_files_display,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(cdps_df, convert_size, mo):
     # Summary stats
 
@@ -610,39 +966,41 @@ def _(cdps_df, convert_size, mo):
     return (current_summary,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(
     aip_display,
+    born_digital_digitized_display,
     current_summary,
-    digitized_born_digital_display,
-    file_datapoints_display,
+    file_counts_display,
+    file_data_points_display,
     file_extensions_mimetypes_display,
-    files_display,
+    file_storage_display,
     image_av_display,
     mo,
-    original_duplicate_display,
+    original_files_display,
     storage_display,
 ):
     # Dashboard
 
     # Collects all the data displays with labels in an accordion element
-    accordion = mo.accordion(
+    data_category_accordion = mo.accordion(
         lazy=True,
         items={
-            "Files": files_display,
-            "Storage": storage_display,
+            "File counts": file_counts_display,
+            "File storage": file_storage_display,
             "File extensions and mimetypes": file_extensions_mimetypes_display,
-            "File datapoints": file_datapoints_display,
+            "File data points": file_data_points_display,
+            "Storage": storage_display,
             "AIPs": aip_display,
-            "Digitized vs born-digital content": digitized_born_digital_display,
-            "Image vs AV": image_av_display,
-            "Original vs duplicate files": original_duplicate_display,
+            "Born-digital vs. digitized content": born_digital_digitized_display,
+            "AV vs. image": image_av_display,
+            "Original files": original_files_display,
         },
     )
 
     # Organizes elements on the page vertically
     mo.vstack(
-        [mo.md("### Summary"), current_summary, accordion],
+        [mo.md("### Summary"), current_summary, data_category_accordion],
         gap=1,
     )
     return
