@@ -11,7 +11,7 @@
 
 import marimo
 
-__generated_with = "0.22.0"
+__generated_with = "0.22.4"
 app = marimo.App(width="medium")
 
 
@@ -26,6 +26,8 @@ def _():
 def _(mo):
     mo.md("""
     # CDPS Dashboard
+
+    ### This notebook reports statistics about MIT Libraries' Comprehensive Digital Preservation Services (CDPS) storage.
     """)
     return
 
@@ -465,6 +467,7 @@ def _(cdps_df, go, mo):
     # Organizes the data views into tables vertically with labels
     file_counts_display = mo.vstack(
         [
+            mo.md("This section reports the total count of files by storage location, status category, and preservation level."),
             mo.md("#### File count by bucket"),
             mo.ui.table(file_bucket_data, selection=None, page_size=25),
             mo.md("#### File count by status"),
@@ -480,7 +483,7 @@ def _(cdps_df, go, mo):
     return (file_counts_display,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(cdps_df, convert_size, go, mo):
     # File type data
 
@@ -525,16 +528,10 @@ def _(cdps_df, convert_size, go, mo):
     mimetype_size_data = mimetype_size_data.drop("bytes", axis=1)
     top10_mimetype_size_data = top10_mimetype_size_data.drop("bytes", axis=1)
 
-    content_vs_metadata_data = (
-        cdps_df.groupby("is_metadata")
-        .size()
-        .rename(index={False: "content files", True: "metadata files"})
-        .to_frame("file count")
-    )
-
     # Organizes the data views into tables vertically with labels
     file_type_display = mo.vstack(
         [
+            mo.md("This section groups files by their formats and mimetypes and reports the total counts and storage size. A file's format is extrapolated from the file's extension - file formats have not been validated in these datasets. These data points tell us what kinds of files are most prevalent and take up the most storage."),
             mo.md("#### File count by file extension"),
             mo.ui.table(file_extensions_file_count_data, selection=None, page_size=25),
             mo.md("#### File count by mimetype"),
@@ -544,15 +541,13 @@ def _(cdps_df, convert_size, go, mo):
             mo.md("#### Storage size for top 10 mimetypes"),
             mo.ui.plotly(top10_mimetype_size_chart),
             mo.ui.table(top10_mimetype_size_data, selection=None, page_size=25),
-            mo.md("#### Content files vs. metadata files "),
-            mo.ui.table(content_vs_metadata_data, selection=None, page_size=25),
         ],
         gap=1,
     )
     return (file_type_display,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(cdps_df, convert_size, go, mo):
     # Storage data
 
@@ -647,6 +642,7 @@ def _(cdps_df, convert_size, go, mo):
     # Organizes the data views into tables vertically with labels
     storage_display = mo.vstack(
         [
+            mo.md("This section sums file storage size by storage location, file status category, and file preservation level. It also reports the largest content and metadata files in storage and the mathematical mean file storage sizes for each file status. These data points help us understand how workflows and collecting trends impact preservation storage."),
             mo.md("#### Storage size by bucket"),
             mo.ui.plotly(storage_bucket_chart),
             mo.ui.table(storage_bucket_data, selection=None, page_size=25),
@@ -719,6 +715,7 @@ def _(cdps_df, convert_size, mo):
     # Organizes the data views into tables vertically with labels
     aip_display = mo.vstack(
         [
+            mo.md("This section counts archival information packages (AIPs) and reports their storage size by storage location. It also reports the largest and mathematical mean AIPs by storage size and file count. AIPs are the packages that contain preservation files, which largely correspond to archival collections and digitization requests. These data points are used to inform CDPS system requirements."),
             mo.md("#### Total AIP count"),
             mo.ui.table(total_aip_count, selection=None, page_size=25),
             mo.md("#### AIP count by bucket"),
@@ -787,6 +784,7 @@ def _(cdps_df, convert_size, go, mo):
     # Organizes the data views into tables vertically with labels
     born_digital_digitized_display = mo.vstack(
         [
+            mo.md("This section compares born-digital files and digitized files by storage size, storage location, and file count. These data points help us understand how much of the preservation program is dedicated to digitization workflows vs born-digital collecting."),
             mo.md("#### Storage size by born-digital vs. digitized"),
             mo.ui.plotly(born_digital_digitized_size_chart),
             mo.ui.table(born_digital_digitized_size_data, selection=None, page_size=25),
@@ -838,6 +836,7 @@ def _(cdps_df, convert_size, go, mo):
     # Organizes the data views into tables vertically with labels
     image_av_display = mo.vstack(
         [
+            mo.md("This section compares audiovisual files, still image files, and everything else. It groups mimetypes into the three categories. AV and still image files are large. These data points demonstrate the impact AV and still image format projects and collections have on digital preservation."),
             mo.md("#### Still image, audiovisual, and everything else by file count"),
             mo.ui.table(av_file_count_data, selection=None, page_size=25),
             mo.md("#### Still image, audiovisual, and everything else by storage size"),
@@ -906,6 +905,7 @@ def _(cdps_df, convert_size, go, mo):
     # Organizes the data views into tables vertically with labels
     original_files_display = mo.vstack(
         [
+            mo.md("This section presets data points about 'original files' which, for the purposes of this notebook, are files that are not duplicate copies, normalizations, access derivatives, or metadata. The data points filter for original files and repeat some of the statistics presented in other sections. These data points help us dig slightly deeper into collection content analysis."),
             mo.md("#### Original files by file extension"),
             mo.ui.table(
                 original_files_extension_file_count_data, selection=None, page_size=25
@@ -946,8 +946,32 @@ def _(cdps_df, convert_size, mo):
     return (current_summary,)
 
 
-@app.cell
+@app.cell(hide_code=True)
+def _(mo):
+    # About this notebook
+
+    about_display = mo.md(''' The notebook's data comes from the CDPS AIPstore buckets' AWS S3 inventories. The notebook can display data from any exisiting set of inventories. Use the calendar to select a date. Inventories are updated daily. 
+
+    The notebook categorizes files in ways that facilitate analysis. Here's a summary of the logic used to categorize the files:
+    - If a file has specific file names or is stored in specific directories that indicate it is descriptive or preservation metadata, it's status is categorized ***metadata***.
+    - If a file has an Archivematica file UUID appended to the filename, is a PDF in a digitized AIP, or is in a thumbnails directory, it's status is categorized ***normalized/access derivative***.
+    - If an AIP is a backup copy stored in reduntant storage (4b or 5b), the files within it are given the status category ***replica copy***.
+    - Any file that is not a replica copy, a normalized/access derivative, or metadata is given the status category ***original content***.
+    - ***Mimetypes*** are estimated using the file's extension and the Python mimetypes library. File formats have not been validated in these datasets.
+    - If the AIP containing a file has a name indicating it came from MIT Libraries digitization workflows, the file is marked ***digitized***.
+    - Any files that are not in AIPs marked digitized are marked ***born-digital***.
+
+    The notebook's data is intended for MIT Libraries staff use. It has minor redactions that protect data security and archive restrictions. The full AWS inventories remain restricted. 
+
+    For more information about the Libraries' preservation infrastructure see [Repository and Digital Content Storage Systems and Services](https://mitlibraries.atlassian.net/wiki/x/AQDsEQE).
+
+    Have questions or comments? Contact the Digital Preservation Coordinator, Charlie Hosale (chosale@mit.edu).''')
+    return (about_display,)
+
+
+@app.cell(hide_code=True)
 def _(
+    about_display,
     aip_display,
     born_digital_digitized_display,
     current_summary,
@@ -964,12 +988,13 @@ def _(
     data_category_accordion = mo.accordion(
         lazy=True,
         items={
+            "About this notebook:": about_display,
+            "Storage data": storage_display,
             "File counts": file_counts_display,
             "File type data": file_type_display,
-            "Storage data": storage_display,
-            "AIPs": aip_display,
+            "Archival information packages": aip_display,
             "Born-digital vs. digitized content": born_digital_digitized_display,
-            "AV vs. image": image_av_display,
+            "AV, image, and everything else": image_av_display,
             "Original files": original_files_display,
         },
     )
@@ -979,6 +1004,11 @@ def _(
         [mo.md("### Summary"), current_summary, data_category_accordion],
         gap=1,
     )
+    return
+
+
+@app.cell
+def _():
     return
 
 
