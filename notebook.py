@@ -965,12 +965,12 @@ def _(mo):
     # About this notebook
 
     about_display = mo.md(
-        """ The notebook's data comes from the CDPS AIPstore buckets' AWS S3 inventories. The notebook can display data from any exisiting set of inventories. Use the calendar to select a date. Inventories are updated daily.
+        """ The notebook's data comes from the CDPS AIPstore buckets' AWS S3 inventories. The notebook can display data from any existing set of inventories. Use the calendar to select a date. Inventories are updated daily.
 
     The notebook categorizes files in ways that facilitate analysis. Here's a summary of the logic used to categorize the files:
     - If a file has specific file names or is stored in specific directories that indicate it is descriptive or preservation metadata, it's status is categorized ***metadata***.
     - If a file has an Archivematica file UUID appended to the filename, is a PDF in a digitized AIP, or is in a thumbnails directory, it's status is categorized ***normalized/access derivative***.
-    - If an AIP is a backup copy stored in reduntant storage (4b or 5b), the files within it are given the status category ***replica copy***.
+    - If an AIP is a backup copy stored in redundant storage (4b or 5b), the files within it are given the status category ***replica copy***.
     - Any file that is not a replica copy, a normalized/access derivative, or metadata is given the status category ***original content***.
     - ***Mimetypes*** are estimated using the file's extension and the Python mimetypes library. File formats have not been validated in these datasets.
     - If the AIP containing a file has a name indicating it came from MIT Libraries digitization workflows, the file is marked ***digitized***.
