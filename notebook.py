@@ -24,13 +24,11 @@ def _():
 
 @app.cell
 def _(mo):
-    mo.md(
-        """
+    mo.md("""
     # CDPS Dashboard
 
     ### This notebook reports statistics about MIT Libraries' Comprehensive Digital Preservation Services (CDPS) storage.
-    """
-    )
+    """)
     return
 
 
@@ -967,7 +965,7 @@ def _(mo):
     # About this notebook
 
     about_display = mo.md(
-        """ The notebook's data comes from the CDPS AIPstore buckets' AWS S3 inventories. The notebook can display data from any exisiting set of inventories. Use the calendar to select a date. Inventories are updated daily. 
+        """ The notebook's data comes from the CDPS AIPstore buckets' AWS S3 inventories. The notebook can display data from any exisiting set of inventories. Use the calendar to select a date. Inventories are updated daily.
 
     The notebook categorizes files in ways that facilitate analysis. Here's a summary of the logic used to categorize the files:
     - If a file has specific file names or is stored in specific directories that indicate it is descriptive or preservation metadata, it's status is categorized ***metadata***.
@@ -978,7 +976,7 @@ def _(mo):
     - If the AIP containing a file has a name indicating it came from MIT Libraries digitization workflows, the file is marked ***digitized***.
     - Any files that are not in AIPs marked digitized are marked ***born-digital***.
 
-    The notebook's data is intended for MIT Libraries staff use. It has minor redactions that protect data security and archive restrictions. The full AWS inventories remain restricted. 
+    The notebook's data is intended for MIT Libraries staff use. It has minor redactions that protect data security and archive restrictions. The full AWS inventories remain restricted.
 
     For more information about the Libraries' preservation infrastructure see [Repository and Digital Content Storage Systems and Services](https://mitlibraries.atlassian.net/wiki/x/AQDsEQE).
 
