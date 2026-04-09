@@ -11,7 +11,7 @@
 
 import marimo
 
-__generated_with = "0.22.4"
+__generated_with = "0.23.0"
 app = marimo.App(width="medium")
 
 
@@ -77,20 +77,8 @@ def _():
         key_parts = dataframe["key"].str.split("/", expand=True)
 
         dataframe.loc[:, "bagname"] = key_parts[8] if key_parts.shape[1] > 8 else ""
-        dataframe.loc[:, "uuid"] = (
-            key_parts[0]
-            + key_parts[1]
-            + "-"
-            + key_parts[2]
-            + "-"
-            + key_parts[3]
-            + "-"
-            + key_parts[4]
-            + "-"
-            + key_parts[5]
-            + key_parts[6]
-            if key_parts.shape[1] > 6
-            else "" + key_parts[7] if key_parts.shape[1] > 7 else ""
+        dataframe["uuid"] = dataframe["key"].str.extract(
+            r"(\S{8}-\S{4}-\S{4}-\S{4}-\S{12})"
         )
         dataframe["accession_name"] = dataframe["bagname"].str.split("-").str[0]
         dataframe.loc[:, "file"] = dataframe["key"].str.split("/").str[-1]
@@ -324,6 +312,21 @@ def _():
     return (parquet_file_uri_cache,)
 
 
+@app.cell
+def _(logger, mo, selected_date, symlink_dict):
+    # Verify S3 Inventory data is available for the selected date
+    logger.info(f"Collecting parquet file URIs for date: {selected_date}")
+
+    if selected_date not in symlink_dict:
+        date_message = (
+            f"No S3 Inventory data found for {selected_date}, select a different date"
+        )
+    else:
+        date_message = f"S3 Inventory data found for {selected_date}, loading data tables and visualizations..."
+    mo.md(date_message)
+    return
+
+
 @app.cell(hide_code=True)
 def _(
     ClientError,
@@ -338,7 +341,6 @@ def _(
 ):
     # Add parquet file URIs to cache if not already present
     if not parquet_file_uri_cache.get(selected_date):
-        logger.info(f"Collecting parquet file URIs for date: {selected_date}")
         parquet_file_uris = []
         for symlink in symlink_dict[selected_date]:
             # Get parquet file URI from symlink.txt
@@ -613,26 +615,24 @@ def _(cdps_df, convert_size, go, mo):
 
     largest_file = cdps_df.loc[cdps_df["size"].idxmax()]
     largest_file_data = {
-        "File name": largest_file["file"],
+        "File extension": largest_file["extension"],
         "Storage size": convert_size(largest_file["size"]),
         "Bag": largest_file["bagname"],
         "Parquet file": largest_file["parquet_file"],
-        "File path": largest_file["filepath"],
     }
 
     metadata_files_data = cdps_df[cdps_df["status"] == "metadata"]
     largest_metadata_file = metadata_files_data.loc[metadata_files_data["size"].idxmax()]
     largest_metadata_file_data = {
-        "File name": largest_metadata_file["file"],
+        "File extension": largest_metadata_file["extension"],
         "Storage size": convert_size(largest_metadata_file["size"]),
         "Bag": largest_metadata_file["bagname"],
         "Parquet file": largest_metadata_file["parquet_file"],
-        "File path": largest_metadata_file["filepath"],
     }
 
     top10_largest_files_data = (
         cdps_df.sort_values(by="size", ascending=False)
-        .loc[:, ["file", "size"]]
+        .loc[:, ["extension", "bagname", "size"]]
         .assign(size=lambda x: x["size"].apply(convert_size))
         .reset_index(drop=True)[:10]
     )
