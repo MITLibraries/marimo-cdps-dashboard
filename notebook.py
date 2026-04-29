@@ -32,8 +32,40 @@ def _(mo):
     return
 
 
-@app.cell(hide_code=True)
+@app.cell
 def _():
+    # IDs for bags that have been digitized outside of the Archivematica workflow
+    digitized_bag_ids = [
+        "6ba766c3-c778-4904-81c6-ebec0cb83f80",
+        "0855323e-fab7-4b4d-acbf-0c4e460a1122",
+        "253b2da4-03a7-4cc7-b0ff-60564ed21e27",
+        "4c347b0a-46b1-4e0b-8316-04e9bc076301",
+        "c6f6cbea-1afc-4cbc-bd36-7f0ea72efa79",
+        "d29b5d7b-536d-4cec-b954-ba845408eaf0",
+        "77d372d4-8dfa-4338-890c-341e45b856f8",
+        "c842a632-9b1b-431a-969a-7013e945d157",
+        "44b13df4-5892-424e-9db4-dc1d029df3f3",
+        "e4c2b563-ecdc-4c19-8d4b-e6e5fa3ef00d",
+        "75bbd422-b028-4697-9519-1eda0616bdf0",
+        "1d336b68-4a09-4ced-84ff-bfd819207f45",
+        "cf88c667-2841-42e0-8bce-dbf215c79dac",
+        "a5a873ad-8cbe-467a-9163-e8e00183689f",
+        "ed4bbf43-69d0-40cc-9a1b-5351226d2f05",
+        "9f2cfdd8-17bc-4967-b275-604adf4cbd4f",
+        "20d70ede-f395-4dc2-9886-e20911ad66e1",
+        "3d0c5d43-b951-43cf-a8c5-7092d96658c8",
+        "12246ea1-fa82-47e1-afc3-5146d37811f9",
+        "f9e267e5-9e30-4c25-a6c2-3a37abf35732",
+        "4419c268-d09d-42af-9aea-912c2d5fd722",
+        "9231dc94-01fc-42bf-a5fc-1f5f010bd111",
+        "4ef4b2aa-24ae-4579-a29f-0f696874b09e",
+        "3e161569-43d6-4c6f-aafd-f39723f5c0f8",
+        "b3719fa0-8b57-4c90-a40a-9e083e79858e",
+        "438964ce-6b7a-47c0-9c6a-f3995ed9842a",
+        "8f6e852d-1619-49c6-9279-c69f2fbf1125",
+        "f8bcf269-2869-49a9-aaa9-0f40837ac214",
+    ]
+    return (digitized_bag_ids,)
     # Functions
     import io
     import logging
@@ -156,7 +188,7 @@ def _():
             dataframe.accession_name.str.contains(digitized_aip_regex, regex=True),
             "Digitized",
             np.where(
-                dataframe.accession_name.isin(os.environ["DIGITIZED_BAG_IDS"].split(",")),
+                dataframe.uuid.isin(digitized_bag_ids),
                 "Digitized",
                 "Born Digital",
             ),
@@ -741,9 +773,6 @@ def _(cdps_df, convert_size, mo):
 @app.cell(hide_code=True)
 def _(cdps_df, convert_size, go, mo):
     # Born-digital vs. digitized content
-
-    # NOTE: the DIGITIZED_BAG_IDS env variable is not implemented yet pending further
-    # discussion so these data points are not fully accurate
 
     # Data views generated from filtered dataframes
     born_digital_digitized_size_data = (
