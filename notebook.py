@@ -66,6 +66,10 @@ def _():
         "f8bcf269-2869-49a9-aaa9-0f40837ac214",
     ]
     return (digitized_bag_ids,)
+
+
+@app.cell
+def _(digitized_bag_ids, mo):
     # Functions
     import io
     import logging
@@ -87,15 +91,117 @@ def _():
     logging.basicConfig(format="%(asctime)s %(levelname)s: %(message)s")
     logger.setLevel(logging.INFO)
 
-    def convert_size(size_bytes):
-        """Convert byte counts into a human readable format."""
-        if size_bytes == 0:
-            return "0B"
-        size_name = ("B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB")
-        i = math.floor(math.log(size_bytes, 1024))
-        p = math.pow(1024, i)
-        s = round(size_bytes / p, 2)
-        return f"{s} {size_name[i]}"
+    def create_dataframe_for_date(
+        s3_client, selected_date: str, symlink_uris: list, uri_cache: dict | None = None
+    ) -> tuple[pd.DataFrame, dict]:
+        """Orchestrate creation of processed inventory dataframe for a given date."""
+        if uri_cache is None:
+            uri_cache = {}
+
+        # Check if parquet URIs are already cached for this date
+        with mo.status.spinner(title=f"Loading inventory data for {selected_date}"):
+            if selected_date in uri_cache:
+                logger.info(f"Using cached parquet URIs for {selected_date}")
+                parquet_uris = uri_cache[selected_date]
+            else:
+                # Get parquet URIs from symlink files and cache them
+                logger.info(f"Fetching and caching parquet URIs for {selected_date}")
+                parquet_uris = get_parquet_uris_from_symlinks(s3_client, symlink_uris)
+                uri_cache[selected_date] = parquet_uris
+
+            # Create dataframes from parquet files
+            parquet_dfs = create_parquet_dataframes(s3_client, parquet_uris)
+
+        with mo.status.spinner(title=f"Processing inventory data for {selected_date}"):
+            # Process and return current inventory data
+            current_df = process_inventory_data(parquet_dfs)
+
+            # Transform current inventory dataframe
+            cdps_df = transform_cdps_data(current_df)
+
+        return cdps_df, uri_cache
+
+    def get_parquet_uris_from_symlinks(s3_client, symlink_uris: list) -> list:
+        """Retrieve parquet file URIs from symlink.txt files."""
+        parquet_uris = []
+        for symlink_uri in symlink_uris:
+            parsed_symlink = urlparse(symlink_uri)
+            symlink_bucket = parsed_symlink.netloc
+            symlink_key = parsed_symlink.path.lstrip("/")
+            try:
+                logger.info(
+                    f"Retrieving symlink file: s3://{symlink_bucket}/{symlink_key}"
+                )
+                response = s3_client.get_object(Bucket=symlink_bucket, Key=symlink_key)
+            except ClientError:
+                logger.exception("Client error while retrieving symlink.txt file:")
+                raise
+            parquet_uris.append(response["Body"].read().decode("utf-8"))
+        return parquet_uris
+
+    def create_parquet_dataframes(s3_client, parquet_uris: list) -> list:
+        """Retrieve parquet files from S3 and convert to dataframes."""
+        parquet_dfs = []
+        for parquet_uri in parquet_uris:
+            parsed_uri = urlparse(parquet_uri)
+            parquet_bucket = parsed_uri.netloc
+            parquet_key = parsed_uri.path.lstrip("/")
+            try:
+                logger.info(
+                    f"Retrieving parquet file: s3://{parquet_bucket}/{parquet_key}"
+                )
+                s3_object = s3_client.get_object(Bucket=parquet_bucket, Key=parquet_key)
+            except ClientError:
+                logger.exception("Client error while retrieving parquet file:")
+                raise
+            parquet_df = pd.read_parquet(io.BytesIO(s3_object["Body"].read()))
+            parquet_df.loc[:, "parquet_file"] = parquet_key.split("/")[-1]
+            parquet_dfs.append(parquet_df)
+        return parquet_dfs
+
+    def process_inventory_data(
+        dataframes: list,
+    ) -> pd.DataFrame:
+        """Process inventory dataframe to extract current objects.
+
+        Args:
+            dataframes: List of inventory DataFrames
+            logger: Logger instance
+
+        Returns:
+            DataFrame containing only current objects
+        """
+        # Concatenate and deduplicate
+        inventory_df = (
+            pd.concat(dataframes, ignore_index=True)
+            .drop_duplicates()
+            .reset_index(drop=True)
+        )
+
+        # Filter for current objects (not deleted, latest version)
+        inventory_df.loc[:, "is_current"] = (
+            inventory_df["is_latest"] & ~inventory_df["is_delete_marker"]
+        )
+        current_df = (
+            inventory_df.loc[inventory_df["is_current"]].copy().reset_index(drop=True)
+        )
+        logger.info(f"Current CDPS dataframe built with {len(current_df)} records.")
+        return current_df
+
+    def transform_cdps_data(dataframe: pd.DataFrame) -> pd.DataFrame:
+        """Apply all CDPS data transformations to the inventory dataframe."""
+        return (
+            dataframe.pipe(rename_bucket)
+            .pipe(parse_s3_keys)
+            .pipe(is_metadata)
+            .pipe(preservation_level)
+            .pipe(mime_types)
+            .pipe(is_digitized_aip)
+            .pipe(is_replica)
+            .pipe(is_normalized_file)
+            .pipe(set_status)
+            .pipe(is_av_image)
+        )
 
     def rename_bucket(dataframe: pd.DataFrame) -> pd.DataFrame:
         """Extract AIPStore name from bucket field (e.g., 'aipstore1b')."""
@@ -252,73 +358,85 @@ def _():
         )
         return dataframe
 
+    def convert_size(size_bytes):
+        """Convert byte counts into a human readable format."""
+        if size_bytes == 0:
+            return "0B"
+
+        # Detect if the value is negative before converting to absolute value
+        is_negative = size_bytes < 0
+        size_bytes = abs(size_bytes)
+
+        size_name = ("B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB")
+        i = math.floor(math.log(size_bytes, 1024))
+        p = math.pow(1024, i)
+        s = round(size_bytes / p, 2)
+        result = f"{s} {size_name[i]}"
+
+        if is_negative:
+            result = f"-{result}"
+        return result
+
     return (
         ClientError,
         boto3,
         convert_size,
+        create_dataframe_for_date,
         datetime,
         go,
-        io,
-        is_av_image,
-        is_digitized_aip,
-        is_metadata,
-        is_normalized_file,
-        is_replica,
         logger,
-        mime_types,
         os,
-        parse_s3_keys,
         pd,
-        preservation_level,
         re,
-        rename_bucket,
-        set_status,
         timedelta,
         urlparse,
     )
 
 
-@app.cell(hide_code=True)
-def _(ClientError, boto3, logger, os, re, urlparse):
+@app.cell
+def _(ClientError, boto3, logger, mo, os, re, urlparse):
     # Get symlink files and dates as dict
     s3 = boto3.client("s3")
 
-    logger.info("Building symlink dict from S3 inventory locations")
+    logger.info("Building symlink dict from inventory locations")
     symlink_dict = {}
 
     # Iterate through the S3 inventory locations and build symlink dict
-    for s3_inventory_location in os.environ["S3_INVENTORY_LOCATIONS"].split(","):
-        logger.info(f"Retrieving symlink.txt files from: {s3_inventory_location}")
-        parsed_location = urlparse(s3_inventory_location)
-        inventory_bucket = parsed_location.netloc
-        inventory_prefix = parsed_location.path.lstrip("/")
+    with mo.status.spinner(title="Collecting inventory data..."):
+        for s3_inventory_location in os.environ["S3_INVENTORY_LOCATIONS"].split(","):
+            logger.info(f"Retrieving symlink.txt files from: {s3_inventory_location}")
+            parsed_location = urlparse(s3_inventory_location)
+            inventory_bucket = parsed_location.netloc
+            inventory_prefix = parsed_location.path.lstrip("/")
 
-        paginator = s3.get_paginator("list_objects_v2")
-        try:
-            for page in paginator.paginate(
-                Bucket=inventory_bucket, Prefix=inventory_prefix
-            ):
-                for obj in page.get("Contents", []):
-                    key = obj["Key"]
-                    if key.lower().endswith("symlink.txt"):
-                        if match := re.search(r"dt=\d{4}-\d{2}-\d{2}", key):
-                            date_string = match.group(0)[3:]
-                        else:
-                            raise ValueError(
-                                f"Could not parse datetime partition from uri: {key}"
+            paginator = s3.get_paginator("list_objects_v2")
+            try:
+                for page in paginator.paginate(
+                    Bucket=inventory_bucket, Prefix=inventory_prefix
+                ):
+                    for obj in page.get("Contents", []):
+                        key = obj["Key"]
+                        if key.lower().endswith("symlink.txt"):
+                            if match := re.search(r"dt=\d{4}-\d{2}-\d{2}", key):
+                                date_string = match.group(0)[3:]
+                            else:
+                                raise ValueError(
+                                    f"Could not parse datetime partition from uri: {key}"
+                                )
+
+                            if date_string not in symlink_dict:
+                                symlink_dict[date_string] = []
+                            symlink_dict[date_string].append(
+                                f"s3://{inventory_bucket}/{key}"
                             )
-
-                        if date_string not in symlink_dict:
-                            symlink_dict[date_string] = []
-                        symlink_dict[date_string].append(f"s3://{inventory_bucket}/{key}")
-        except ClientError:
-            logger.exception("Client error while retrieving symlink.txt files:")
-            raise
-    logger.info(f"Symlink dict built with {len(symlink_dict)} dates.")
+            except ClientError:
+                logger.exception("Client error while retrieving symlink.txt files:")
+                raise
+        logger.info(f"Symlink dict built with {len(symlink_dict)} dates.")
     return s3, symlink_dict
 
 
-@app.cell(hide_code=True)
+@app.cell
 def _(datetime, mo, timedelta):
     # Select date from calendar element
 
@@ -328,9 +446,9 @@ def _(datetime, mo, timedelta):
     return (date_selector,)
 
 
-@app.cell(hide_code=True)
+@app.cell
 def _(date_selector, mo, pd, symlink_dict):
-    # Retrieve parquet files from the selected date
+    # Verify data exists for the selected date
 
     selected_date = pd.to_datetime(date_selector.value).strftime("%Y-%m-%d")
 
@@ -341,116 +459,27 @@ def _(date_selector, mo, pd, symlink_dict):
     return (selected_date,)
 
 
-@app.cell(hide_code=True)
+@app.cell
 def _():
-    # Cache of parquet files URIs by date for efficient recall of previously used dates
-
+    # Initialize cache for parquet file URIs to minimize AWS calls
     parquet_file_uri_cache = {}
     return (parquet_file_uri_cache,)
 
 
-@app.cell(hide_code=True)
+@app.cell
 def _(
-    ClientError,
-    io,
-    logger,
-    mo,
+    create_dataframe_for_date,
     parquet_file_uri_cache,
-    pd,
     s3,
     selected_date,
     symlink_dict,
-    urlparse,
 ):
-    # Add parquet file URIs to cache if not already present
-    if not parquet_file_uri_cache.get(selected_date):
-        parquet_file_uris = []
-        for symlink in symlink_dict[selected_date]:
-            # Get parquet file URI from symlink.txt
-            parsed_symlink_file = urlparse(symlink)
-            symlink_bucket = parsed_symlink_file.netloc
-            symlink_key = parsed_symlink_file.path.lstrip("/")
-            try:
-                logger.info(
-                    f"Retrieving symlink file: s3://{symlink_bucket}/{symlink_key}"
-                )
-                response = s3.get_object(Bucket=symlink_bucket, Key=symlink_key)
-            except ClientError:
-                logger.exception("Client error while retrieving symlink.txt file:")
-                raise
-            parquet_file_uris.append(response["Body"].read().decode("utf-8"))
-        parquet_file_uri_cache[selected_date] = parquet_file_uris
-
-    # Retrieve parquet files
-    parquet_dfs = []
-    with mo.status.spinner(title="Loading S3 inventory data..."):
-        logger.info(f"Processing parquet file URIs for date: {selected_date}")
-        for parquet_file_uri in parquet_file_uri_cache[selected_date]:
-            # Parse parquet file URI
-            parsed_parquet_file_uri = urlparse(parquet_file_uri)
-            parquet_bucket = parsed_parquet_file_uri.netloc
-            parquet_key = parsed_parquet_file_uri.path.lstrip("/")
-
-            # Get parquet file and convert to dataframe
-            try:
-                logger.info(
-                    f"Retrieving parquet file: s3://{parquet_bucket}/{parquet_key}"
-                )
-                s3_object = s3.get_object(Bucket=parquet_bucket, Key=parquet_key)
-            except ClientError:
-                logger.exception("Client error while retrieving parquet file:")
-                raise
-            parquet_df = pd.read_parquet(io.BytesIO(s3_object["Body"].read()))
-            parquet_df.loc[:, "parquet_file"] = parquet_key.split("/")[-1]
-            parquet_dfs.append(parquet_df)
-
-        # Concatenate parquet dataframes
-        inventory_df = (
-            pd.concat(parquet_dfs, ignore_index=True)
-            .drop_duplicates()
-            .reset_index(drop=True)
-        )
-
-        # Keep only current objects in dataframe
-        inventory_df.loc[:, "is_current"] = (
-            inventory_df["is_latest"] & ~inventory_df["is_delete_marker"]
-        )
-        current_df = (
-            inventory_df.loc[inventory_df["is_current"]].copy().reset_index(drop=True)
-        )
-        logger.info(f"Current CDPS dataframe built with {len(current_df)} records.")
-    return (current_df,)
-
-
-@app.cell(hide_code=True)
-def _(
-    current_df,
-    is_av_image,
-    is_digitized_aip,
-    is_metadata,
-    is_normalized_file,
-    is_replica,
-    mime_types,
-    mo,
-    parse_s3_keys,
-    preservation_level,
-    rename_bucket,
-    set_status,
-):
-    # Update dataframe with additional metadata
-    with mo.status.spinner(title="Processing data..."):
-        cdps_df = (
-            current_df.pipe(rename_bucket)
-            .pipe(parse_s3_keys)
-            .pipe(is_metadata)
-            .pipe(preservation_level)
-            .pipe(mime_types)
-            .pipe(is_digitized_aip)
-            .pipe(is_replica)
-            .pipe(is_normalized_file)
-            .pipe(set_status)
-            .pipe(is_av_image)
-        )
+    # Create processed dataframe for selected date (cached for efficiency)
+    cdps_df, updated_uri_cache = create_dataframe_for_date(
+        s3, selected_date, symlink_dict[selected_date], parquet_file_uri_cache
+    )
+    # Update the cache in-place so it persists for future date selections
+    parquet_file_uri_cache.update(updated_uri_cache)
     return (cdps_df,)
 
 
