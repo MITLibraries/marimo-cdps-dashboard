@@ -11,7 +11,7 @@
 
 import marimo
 
-__generated_with = "0.23.0"
+__generated_with = "0.23.4"
 app = marimo.App(width="medium")
 
 
@@ -377,17 +377,70 @@ def _(digitized_bag_ids, mo):
             result = f"-{result}"
         return result
 
+    def file_count_change_by_field(comparison_dfs: dict, field: str) -> pd.DataFrame:
+        file_count_start = comparison_dfs["start"].groupby(field).size()
+        file_count_end = comparison_dfs["end"].groupby(field).size()
+
+        # Reindex to ensure all values are present
+        all_values = file_count_start.index.union(file_count_end.index)
+        file_count_start = file_count_start.reindex(all_values, fill_value=0)
+        file_count_end = file_count_end.reindex(all_values, fill_value=0)
+
+        # Calculate changes
+        file_count_change_data = (
+            (file_count_end - file_count_start).sort_values(ascending=False).reset_index()
+        )
+        file_count_change_data.columns = [field, "count_change"]
+
+        # Calculate percentage change
+        start_values = file_count_start.reindex(
+            file_count_change_data[field], fill_value=1
+        )
+        file_count_change_data["percent_change"] = (
+            (file_count_change_data["count_change"].to_numpy() / start_values.to_numpy())
+            * 100
+        ).round(2).astype(str) + "%"
+
+        return file_count_change_data
+
+    def storage_change_by_field(comparison_dfs: dict, group_field: str) -> pd.DataFrame:
+        """Calculate storage change grouped by a specified field."""
+        end_storage = comparison_dfs["end"].groupby(group_field)["size"].sum()
+        start_storage = comparison_dfs["start"].groupby(group_field)["size"].sum()
+
+        # Reindex to ensure all values are present in both series
+        all_values = end_storage.index.union(start_storage.index)
+        end_storage = end_storage.reindex(all_values, fill_value=0)
+        start_storage = start_storage.reindex(all_values, fill_value=0)
+
+        # Calculate the difference and sort by magnitude of change
+        storage_change_data = (
+            (end_storage - start_storage).sort_values(ascending=False).reset_index()
+        )
+
+        # Calculate percentage change from start storage
+        start_values = start_storage.reindex(
+            storage_change_data[group_field].values, fill_value=1
+        )
+        storage_change_data["percent_change"] = (
+            (storage_change_data["size"].to_numpy() / start_values.to_numpy()) * 100
+        ).round(2).astype(str) + "%"
+
+        return storage_change_data.assign(size=lambda x: x["size"].apply(convert_size))
+
     return (
         ClientError,
         boto3,
         convert_size,
         create_dataframe_for_date,
         datetime,
+        file_count_change_by_field,
         go,
         logger,
         os,
         pd,
         re,
+        storage_change_by_field,
         timedelta,
         urlparse,
     )
@@ -441,9 +494,9 @@ def _(datetime, mo, timedelta):
     # Select date from calendar element
 
     yesterday = (datetime.now() - timedelta(days=1)).date()
-    date_selector = mo.ui.date(value=str(yesterday), label="Select S3 Inventory Date")
+    date_selector = mo.ui.date(value=str(yesterday), label="Select inventory Date")
     date_selector
-    return (date_selector,)
+    return date_selector, yesterday
 
 
 @app.cell
@@ -454,7 +507,7 @@ def _(date_selector, mo, pd, symlink_dict):
 
     mo.stop(
         selected_date not in symlink_dict,
-        mo.md(f"No S3 Inventory data found for {selected_date}, select a different date"),
+        mo.md(f"No inventory data found for {selected_date}, select a different date"),
     )
     return (selected_date,)
 
@@ -612,7 +665,7 @@ def _(cdps_df, convert_size, go, mo):
     return (file_type_display,)
 
 
-@app.cell(hide_code=True)
+@app.cell
 def _(cdps_df, convert_size, go, mo):
     # Storage data
 
@@ -735,7 +788,7 @@ def _(cdps_df, convert_size, go, mo):
     return (storage_display,)
 
 
-@app.cell(hide_code=True)
+@app.cell
 def _(cdps_df, convert_size, mo):
     # AIPs
 
@@ -997,13 +1050,13 @@ def _(cdps_df, convert_size, go, mo):
     return (original_files_display,)
 
 
-@app.cell(hide_code=True)
+@app.cell
 def _(cdps_df, convert_size, mo):
     # Summary stats
 
     total_files = mo.stat(
         label="Total files",
-        value=f"{len(cdps_df)}",
+        value=f"{len(cdps_df):,}",
     )
 
     total_storage = mo.stat(
@@ -1041,7 +1094,7 @@ def _(mo):
     return (about_display,)
 
 
-@app.cell(hide_code=True)
+@app.cell
 def _(
     about_display,
     aip_display,
@@ -1080,7 +1133,214 @@ def _(
 
 
 @app.cell
-def _():
+def _(datetime, mo, timedelta, yesterday):
+    # Select date range for change data points
+
+    last_year = (datetime.now() - timedelta(days=365)).date()
+    start_date_selector = mo.ui.date(value=str(last_year), label="Select Start Date")
+    end_date_selector = mo.ui.date(value=str(yesterday), label="Select End Date")
+    mo.hstack([start_date_selector, end_date_selector])
+    return end_date_selector, start_date_selector
+
+
+@app.cell
+def _(end_date_selector, mo, pd, start_date_selector, symlink_dict):
+    # Verify data exists for the selected dates
+
+    start_date = pd.to_datetime(start_date_selector.value).strftime("%Y-%m-%d")
+    end_date = pd.to_datetime(end_date_selector.value).strftime("%Y-%m-%d")
+
+    for series_date in [start_date, end_date]:
+        mo.stop(
+            series_date not in symlink_dict,
+            mo.md(f"No inventory data found for {series_date}, select a different date"),
+        )
+    return end_date, start_date
+
+
+@app.cell
+def _(
+    create_dataframe_for_date,
+    end_date,
+    parquet_file_uri_cache,
+    s3,
+    start_date,
+    symlink_dict,
+):
+    # Create dataframes for both dates
+
+    comparison_dfs = {}
+    for date_key, date_value in {"start": start_date, "end": end_date}.items():
+        dataframe, comparison_cache = create_dataframe_for_date(
+            s3,
+            date_value,
+            symlink_dict[date_value],
+            parquet_file_uri_cache,
+        )
+        # Update the cache in-place so it persists for future date selections
+        parquet_file_uri_cache.update(comparison_cache)
+        comparison_dfs[date_key] = dataframe
+    return (comparison_dfs,)
+
+
+@app.cell
+def _(comparison_dfs, convert_size, mo):
+    # Date range change totals
+
+    # Total file count change statistics
+    end_file_count = len(comparison_dfs["end"])
+    start_file_count = len(comparison_dfs["start"])
+    total_file_count_change = mo.stat(
+        label="Total file count change",
+        value=f"{end_file_count - start_file_count:,}",
+    )
+
+    total_file_count_change_percent = mo.stat(
+        label="Total file count change percentage",
+        value=f"{round((end_file_count - start_file_count ) / start_file_count * 100, 2)} %",
+    )
+
+    # Total storage change statistics
+    end_storage = comparison_dfs["end"]["size"].sum()
+    start_storage = comparison_dfs["start"]["size"].sum()
+    total_storage_change = mo.stat(
+        label="Total storage size change",
+        value=f"{convert_size(end_storage - start_storage)}",
+    )
+    total_storage_change_percent = mo.stat(
+        label="Total storage size change percentage",
+        value=f"{round((end_storage - start_storage ) / start_storage * 100, 2)} %",
+    )
+
+    # AIPs added
+    end_uuids = set(comparison_dfs["end"]["uuid"].unique())
+    start_uuids = set(comparison_dfs["start"]["uuid"].unique())
+    new_aip_uuids = end_uuids - start_uuids
+    aips_added = mo.stat(label="AIPs added", value=f"{len(new_aip_uuids)}")
+    return (
+        aips_added,
+        new_aip_uuids,
+        total_file_count_change,
+        total_file_count_change_percent,
+        total_storage_change,
+        total_storage_change_percent,
+    )
+
+
+@app.cell
+def _(
+    comparison_dfs,
+    convert_size,
+    file_count_change_by_field,
+    mo,
+    new_aip_uuids,
+    storage_change_by_field,
+):
+    # Date range change tables
+
+    # File count change by status
+    file_count_change_by_status_data = file_count_change_by_field(
+        comparison_dfs, "status"
+    )
+    file_count_change_by_status_table = mo.ui.table(
+        file_count_change_by_status_data,
+        label="File count change by status",
+        selection=None,
+        page_size=25,
+    )
+
+    # Storage change by bucket
+    storage_change_by_bucket_data = storage_change_by_field(comparison_dfs, "bucket")
+    storage_change_by_bucket_table = mo.ui.table(
+        storage_change_by_bucket_data,
+        label="Storage size change by bucket",
+        selection=None,
+        page_size=25,
+    )
+
+    # Storage change by status
+    storage_change_by_status_data = storage_change_by_field(comparison_dfs, "status")
+    storage_change_by_status_table = mo.ui.table(
+        storage_change_by_status_data,
+        label="Storage size change by status",
+        selection=None,
+        page_size=25,
+    )
+
+    # Storage change by preservation_level
+    storage_change_by_preservation_level_data = storage_change_by_field(
+        comparison_dfs, "preservation_level"
+    )
+    storage_change_by_preservation_level_table = mo.ui.table(
+        storage_change_by_preservation_level_data,
+        label="Storage size change by preservation_level",
+        selection=None,
+        page_size=25,
+    )
+
+    # Find largest added AIP by storage size
+    aip_sizes_end = comparison_dfs["end"].groupby("uuid")["size"].sum()
+    new_aip_sizes = aip_sizes_end[aip_sizes_end.index.isin(new_aip_uuids)]
+    if len(new_aip_sizes) > 0:
+        largest_aip_uuid = new_aip_sizes.idxmax()
+        largest_aip_added_table = mo.ui.table(
+            {
+                "UUID": [largest_aip_uuid],
+                "Size": [convert_size(new_aip_sizes[largest_aip_uuid])],
+            },
+            label="Largest AIP added",
+            selection=None,
+        )
+    else:
+        largest_aip_added_table = mo.md("No AIPs added during this period")
+    return (
+        file_count_change_by_status_table,
+        largest_aip_added_table,
+        storage_change_by_bucket_table,
+        storage_change_by_preservation_level_table,
+        storage_change_by_status_table,
+    )
+
+
+@app.cell
+def _(
+    aips_added,
+    file_count_change_by_status_table,
+    largest_aip_added_table,
+    mo,
+    storage_change_by_bucket_table,
+    storage_change_by_preservation_level_table,
+    storage_change_by_status_table,
+    total_file_count_change,
+    total_file_count_change_percent,
+    total_storage_change,
+    total_storage_change_percent,
+):
+    # Display data points for date range change
+
+    total_change_display = mo.hstack(
+        [
+            total_file_count_change,
+            total_file_count_change_percent,
+            total_storage_change,
+            total_storage_change_percent,
+            aips_added,
+        ],
+        widths="equal",
+        gap=1,
+    )
+
+    change_display = mo.vstack(
+        [
+            total_change_display,
+            file_count_change_by_status_table,
+            storage_change_by_bucket_table,
+            storage_change_by_status_table,
+            storage_change_by_preservation_level_table,
+            largest_aip_added_table,
+        ]
+    )
+    change_display
     return
 
 
