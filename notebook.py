@@ -204,9 +204,9 @@ def _(digitized_bag_ids, mo):
         )
 
     def rename_bucket(dataframe: pd.DataFrame) -> pd.DataFrame:
-        """Extract AIPStore name from bucket field (e.g., 'aipstore1b')."""
+        """Extract label from bucket field (e.g., 'aipstore1b', 'dissemination')."""
         dataframe.loc[:, "bucket"] = dataframe["bucket"].str.extract(
-            r"(aipstore\d+[a-z]?)", expand=False
+            r"(aipstore\d+[a-z]?|dissemination|submission)", expand=False
         )
         return dataframe
 
