@@ -71,12 +71,14 @@ def _():
 @app.cell
 def _(digitized_bag_ids, mo):
     # Functions
+
     import io
     import logging
     import math
     import mimetypes
     import os
     import re
+    from collections.abc import Callable
     from datetime import datetime, timedelta
     from pathlib import Path
     from urllib.parse import urlparse
@@ -377,56 +379,70 @@ def _(digitized_bag_ids, mo):
             result = f"-{result}"
         return result
 
-    def file_count_change_by_field(comparison_dfs: dict, field: str) -> pd.DataFrame:
+    def file_count_difference_by_field(comparison_dfs: dict, field: str) -> pd.DataFrame:
+        """Calculate file count difference grouped by a specified field."""
         file_count_start = comparison_dfs["start"].groupby(field).size()
         file_count_end = comparison_dfs["end"].groupby(field).size()
-
-        # Reindex to ensure all values are present
-        all_values = file_count_start.index.union(file_count_end.index)
-        file_count_start = file_count_start.reindex(all_values, fill_value=0)
-        file_count_end = file_count_end.reindex(all_values, fill_value=0)
-
-        # Calculate changes
-        file_count_change_data = (
-            (file_count_end - file_count_start).sort_values(ascending=False).reset_index()
+        return _calculate_difference_by_field(
+            file_count_start, file_count_end, field, "start file count", "end file count"
         )
-        file_count_change_data.columns = [field, "count_change"]
 
-        # Calculate percentage change
-        start_values = file_count_start.reindex(
-            file_count_change_data[field], fill_value=1
-        )
-        file_count_change_data["percent_change"] = (
-            (file_count_change_data["count_change"].to_numpy() / start_values.to_numpy())
-            * 100
-        ).round(2).astype(str) + "%"
-
-        return file_count_change_data
-
-    def storage_change_by_field(comparison_dfs: dict, group_field: str) -> pd.DataFrame:
-        """Calculate storage change grouped by a specified field."""
+    def storage_difference_by_field(
+        comparison_dfs: dict, group_field: str
+    ) -> pd.DataFrame:
+        """Calculate storage difference grouped by a specified field."""
         end_storage = comparison_dfs["end"].groupby(group_field)["size"].sum()
         start_storage = comparison_dfs["start"].groupby(group_field)["size"].sum()
-
-        # Reindex to ensure all values are present in both series
-        all_values = end_storage.index.union(start_storage.index)
-        end_storage = end_storage.reindex(all_values, fill_value=0)
-        start_storage = start_storage.reindex(all_values, fill_value=0)
-
-        # Calculate the difference and sort by magnitude of change
-        storage_change_data = (
-            (end_storage - start_storage).sort_values(ascending=False).reset_index()
+        return _calculate_difference_by_field(
+            start_storage,
+            end_storage,
+            group_field,
+            "start storage",
+            "end storage",
+            formatter=convert_size,
         )
 
-        # Calculate percentage change from start storage
-        start_values = start_storage.reindex(
-            storage_change_data[group_field].values, fill_value=1
+    def _calculate_difference_by_field(
+        start_series: pd.Series,
+        end_series: pd.Series,
+        field_name: str,
+        start_label: str,
+        end_label: str,
+        formatter: Callable | None = None,
+    ) -> pd.Series:
+        """Calculate difference between two series."""
+        # Reindex both series to ensure all values are present
+        all_values = start_series.index.union(end_series.index)
+        start_series = start_series.reindex(all_values, fill_value=0)
+        end_series = end_series.reindex(all_values, fill_value=0)
+
+        # Calculate difference and create dataframe
+        difference_data = (
+            (end_series - start_series).sort_values(ascending=False).reset_index()
         )
-        storage_change_data["percent_change"] = (
-            (storage_change_data["size"].to_numpy() / start_values.to_numpy()) * 100
+        difference_data.columns = [field_name, "difference"]
+
+        # Add start and end values as columns
+        start_values = start_series.reindex(
+            difference_data[field_name], fill_value=0
+        ).to_numpy()
+        end_values = end_series.reindex(
+            difference_data[field_name], fill_value=0
+        ).to_numpy()
+        difference_data.insert(1, start_label, start_values)
+        difference_data.insert(2, end_label, end_values)
+
+        # Calculate percent difference
+        difference_data["percent difference"] = (
+            (difference_data["difference"].to_numpy() / start_values) * 100
         ).round(2).astype(str) + "%"
 
-        return storage_change_data.assign(size=lambda x: x["size"].apply(convert_size))
+        # Apply formatter if provided
+        if formatter:
+            for field in [start_label, end_label, "difference"]:
+                difference_data[field] = difference_data[field].apply(formatter)
+
+        return difference_data
 
     return (
         ClientError,
@@ -434,13 +450,13 @@ def _(digitized_bag_ids, mo):
         convert_size,
         create_dataframe_for_date,
         datetime,
-        file_count_change_by_field,
+        file_count_difference_by_field,
         go,
         logger,
         os,
         pd,
         re,
-        storage_change_by_field,
+        storage_difference_by_field,
         timedelta,
         urlparse,
     )
@@ -1134,7 +1150,7 @@ def _(
 
 @app.cell
 def _(datetime, mo, timedelta, yesterday):
-    # Select date range for change data points
+    # Select date range for difference data points
 
     last_year = (datetime.now() - timedelta(days=365)).date()
     start_date_selector = mo.ui.date(value=str(last_year), label="Select Start Date")
@@ -1145,7 +1161,11 @@ def _(datetime, mo, timedelta, yesterday):
 
 @app.cell
 def _(end_date_selector, mo, pd, start_date_selector, symlink_dict):
-    # Verify data exists for the selected dates
+    # Verify start date is before end date and that data exists for the selected dates
+    mo.stop(
+        start_date_selector.value > end_date_selector.value,
+        mo.md("Start date must be before end date, please select a valid date range"),
+    )
 
     start_date = pd.to_datetime(start_date_selector.value).strftime("%Y-%m-%d")
     end_date = pd.to_datetime(end_date_selector.value).strftime("%Y-%m-%d")
@@ -1185,45 +1205,55 @@ def _(
 
 @app.cell
 def _(comparison_dfs, convert_size, mo):
-    # Date range change totals
+    # Date range difference totals
 
-    # Total file count change statistics
-    end_file_count = len(comparison_dfs["end"])
+    # Total file count statistics
     start_file_count = len(comparison_dfs["start"])
-    total_file_count_change = mo.stat(
-        label="Total file count change",
+    end_file_count = len(comparison_dfs["end"])
+    start_file_count_stat = mo.stat(label="Start file count", value=start_file_count)
+    end_file_count_stat = mo.stat(label="End file count", value=end_file_count)
+
+    total_file_count_difference = mo.stat(
+        label="Total file count difference",
         value=f"{end_file_count - start_file_count:,}",
     )
 
-    total_file_count_change_percent = mo.stat(
-        label="Total file count change percentage",
+    total_file_count_difference_percent = mo.stat(
+        label="Total file count difference percentage",
         value=f"{round((end_file_count - start_file_count ) / start_file_count * 100, 2)} %",
     )
 
-    # Total storage change statistics
-    end_storage = comparison_dfs["end"]["size"].sum()
+    # Total storage statistics
     start_storage = comparison_dfs["start"]["size"].sum()
-    total_storage_change = mo.stat(
-        label="Total storage size change",
+    end_storage = comparison_dfs["end"]["size"].sum()
+    start_storage_stat = mo.stat(label="Start storage", value=convert_size(start_storage))
+    end_storage_stat = mo.stat(label="End storage", value=convert_size(end_storage))
+
+    total_storage_difference = mo.stat(
+        label="Total storage size difference",
         value=f"{convert_size(end_storage - start_storage)}",
     )
-    total_storage_change_percent = mo.stat(
-        label="Total storage size change percentage",
+    total_storage_difference_percent = mo.stat(
+        label="Total storage size difference percentage",
         value=f"{round((end_storage - start_storage ) / start_storage * 100, 2)} %",
     )
 
-    # AIPs added
+    # New AIPs
     end_uuids = set(comparison_dfs["end"]["uuid"].unique())
     start_uuids = set(comparison_dfs["start"]["uuid"].unique())
     new_aip_uuids = end_uuids - start_uuids
-    aips_added = mo.stat(label="AIPs added", value=f"{len(new_aip_uuids)}")
+    new_aips = mo.stat(label="New AIPs", value=f"{len(new_aip_uuids)}")
     return (
-        aips_added,
+        end_file_count_stat,
+        end_storage_stat,
         new_aip_uuids,
-        total_file_count_change,
-        total_file_count_change_percent,
-        total_storage_change,
-        total_storage_change_percent,
+        new_aips,
+        start_file_count_stat,
+        start_storage_stat,
+        total_file_count_difference,
+        total_file_count_difference_percent,
+        total_storage_difference,
+        total_storage_difference_percent,
     )
 
 
@@ -1231,49 +1261,53 @@ def _(comparison_dfs, convert_size, mo):
 def _(
     comparison_dfs,
     convert_size,
-    file_count_change_by_field,
+    file_count_difference_by_field,
     mo,
     new_aip_uuids,
-    storage_change_by_field,
+    storage_difference_by_field,
 ):
-    # Date range change tables
+    # Date range difference tables
 
-    # File count change by status
-    file_count_change_by_status_data = file_count_change_by_field(
+    # File count difference by status
+    file_count_difference_by_status_data = file_count_difference_by_field(
         comparison_dfs, "status"
     )
-    file_count_change_by_status_table = mo.ui.table(
-        file_count_change_by_status_data,
-        label="File count change by status",
+    file_count_difference_by_status_table = mo.ui.table(
+        file_count_difference_by_status_data,
+        label="File count difference by status",
         selection=None,
         page_size=25,
     )
 
-    # Storage change by bucket
-    storage_change_by_bucket_data = storage_change_by_field(comparison_dfs, "bucket")
-    storage_change_by_bucket_table = mo.ui.table(
-        storage_change_by_bucket_data,
-        label="Storage size change by bucket",
+    # Storage difference by bucket
+    storage_difference_by_bucket_data = storage_difference_by_field(
+        comparison_dfs, "bucket"
+    )
+    storage_difference_by_bucket_table = mo.ui.table(
+        storage_difference_by_bucket_data,
+        label="Storage size difference by bucket",
         selection=None,
         page_size=25,
     )
 
-    # Storage change by status
-    storage_change_by_status_data = storage_change_by_field(comparison_dfs, "status")
-    storage_change_by_status_table = mo.ui.table(
-        storage_change_by_status_data,
-        label="Storage size change by status",
+    # Storage difference by status
+    storage_difference_by_status_data = storage_difference_by_field(
+        comparison_dfs, "status"
+    )
+    storage_difference_by_status_table = mo.ui.table(
+        storage_difference_by_status_data,
+        label="Storage size difference by status",
         selection=None,
         page_size=25,
     )
 
-    # Storage change by preservation_level
-    storage_change_by_preservation_level_data = storage_change_by_field(
+    # Storage difference by preservation_level
+    storage_difference_by_preservation_level_data = storage_difference_by_field(
         comparison_dfs, "preservation_level"
     )
-    storage_change_by_preservation_level_table = mo.ui.table(
-        storage_change_by_preservation_level_data,
-        label="Storage size change by preservation_level",
+    storage_difference_by_preservation_level_table = mo.ui.table(
+        storage_difference_by_preservation_level_data,
+        label="Storage size difference by preservation level",
         selection=None,
         page_size=25,
     )
@@ -1283,64 +1317,82 @@ def _(
     new_aip_sizes = aip_sizes_end[aip_sizes_end.index.isin(new_aip_uuids)]
     if len(new_aip_sizes) > 0:
         largest_aip_uuid = new_aip_sizes.idxmax()
-        largest_aip_added_table = mo.ui.table(
-            {
-                "UUID": [largest_aip_uuid],
-                "Size": [convert_size(new_aip_sizes[largest_aip_uuid])],
-            },
-            label="Largest AIP added",
-            selection=None,
-        )
+        largest_aip_data = {
+            "UUID": [largest_aip_uuid],
+            "Size": [convert_size(new_aip_sizes[largest_aip_uuid])],
+        }
     else:
-        largest_aip_added_table = mo.md("No AIPs added during this period")
+        largest_aip_data = {"NA": "No new AIPs during this period"}
+
+    largest_aip_table = mo.ui.table(
+        largest_aip_data,
+        label="Largest new AIP",
+        selection=None,
+    )
     return (
-        file_count_change_by_status_table,
-        largest_aip_added_table,
-        storage_change_by_bucket_table,
-        storage_change_by_preservation_level_table,
-        storage_change_by_status_table,
+        file_count_difference_by_status_table,
+        largest_aip_table,
+        storage_difference_by_bucket_table,
+        storage_difference_by_preservation_level_table,
+        storage_difference_by_status_table,
     )
 
 
 @app.cell
 def _(
-    aips_added,
-    file_count_change_by_status_table,
-    largest_aip_added_table,
+    end_file_count_stat,
+    end_storage_stat,
+    file_count_difference_by_status_table,
+    largest_aip_table,
     mo,
-    storage_change_by_bucket_table,
-    storage_change_by_preservation_level_table,
-    storage_change_by_status_table,
-    total_file_count_change,
-    total_file_count_change_percent,
-    total_storage_change,
-    total_storage_change_percent,
+    new_aips,
+    start_file_count_stat,
+    start_storage_stat,
+    storage_difference_by_bucket_table,
+    storage_difference_by_preservation_level_table,
+    storage_difference_by_status_table,
+    total_file_count_difference,
+    total_file_count_difference_percent,
+    total_storage_difference,
+    total_storage_difference_percent,
 ):
-    # Display data points for date range change
+    # Display data points for date range difference
 
-    total_change_display = mo.hstack(
+    start_end_display = mo.hstack(
         [
-            total_file_count_change,
-            total_file_count_change_percent,
-            total_storage_change,
-            total_storage_change_percent,
-            aips_added,
+            start_file_count_stat,
+            end_file_count_stat,
+            start_storage_stat,
+            end_storage_stat,
         ],
         widths="equal",
         gap=1,
     )
 
-    change_display = mo.vstack(
+    total_difference_display = mo.hstack(
         [
-            total_change_display,
-            file_count_change_by_status_table,
-            storage_change_by_bucket_table,
-            storage_change_by_status_table,
-            storage_change_by_preservation_level_table,
-            largest_aip_added_table,
+            total_file_count_difference,
+            total_file_count_difference_percent,
+            total_storage_difference,
+            total_storage_difference_percent,
+            new_aips,
+        ],
+        widths="equal",
+        gap=1,
+    )
+
+    difference_display = mo.vstack(
+        [
+            start_end_display,
+            total_difference_display,
+            file_count_difference_by_status_table,
+            storage_difference_by_bucket_table,
+            storage_difference_by_status_table,
+            storage_difference_by_preservation_level_table,
+            largest_aip_table,
         ]
     )
-    change_display
+    difference_display
     return
 
 
