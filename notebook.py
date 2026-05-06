@@ -11,7 +11,7 @@
 
 import marimo
 
-__generated_with = "0.23.4"
+__generated_with = "0.23.5"
 app = marimo.App(width="medium")
 
 
@@ -379,20 +379,22 @@ def _(digitized_bag_ids, mo):
             result = f"-{result}"
         return result
 
-    def file_count_difference_by_field(comparison_dfs: dict, field: str) -> pd.DataFrame:
+    def file_count_difference_by_field(
+        start_df: pd.DataFrame, end_df: pd.DataFrame, field: str
+    ) -> pd.DataFrame:
         """Calculate file count difference grouped by a specified field."""
-        file_count_start = comparison_dfs["start"].groupby(field).size()
-        file_count_end = comparison_dfs["end"].groupby(field).size()
+        file_count_start = start_df.groupby(field).size()
+        file_count_end = end_df.groupby(field).size()
         return _calculate_difference_by_field(
             file_count_start, file_count_end, field, "start file count", "end file count"
         )
 
     def storage_difference_by_field(
-        comparison_dfs: dict, group_field: str
+        start_df: pd.DataFrame, end_df: pd.DataFrame, group_field: str
     ) -> pd.DataFrame:
         """Calculate storage difference grouped by a specified field."""
-        end_storage = comparison_dfs["end"].groupby(group_field)["size"].sum()
-        start_storage = comparison_dfs["start"].groupby(group_field)["size"].sum()
+        end_storage = end_df.groupby(group_field)["size"].sum()
+        start_storage = start_df.groupby(group_field)["size"].sum()
         return _calculate_difference_by_field(
             start_storage,
             end_storage,
@@ -1167,6 +1169,11 @@ def _(end_date_selector, mo, pd, start_date_selector, symlink_dict):
         mo.md("Start date must be before end date, please select a valid date range"),
     )
 
+    mo.stop(
+        start_date_selector.value == end_date_selector.value,
+        mo.md("Start date and end date must be different"),
+    )
+
     start_date = pd.to_datetime(start_date_selector.value).strftime("%Y-%m-%d")
     end_date = pd.to_datetime(end_date_selector.value).strftime("%Y-%m-%d")
 
@@ -1200,16 +1207,19 @@ def _(
         # Update the cache in-place so it persists for future date selections
         parquet_file_uri_cache.update(comparison_cache)
         comparison_dfs[date_key] = dataframe
-    return (comparison_dfs,)
+
+    start_df = comparison_dfs["start"]
+    end_df = comparison_dfs["end"]
+    return end_df, start_df
 
 
 @app.cell
-def _(comparison_dfs, convert_size, mo):
+def _(convert_size, end_df, mo, start_df):
     # Date range difference totals
 
     # Total file count statistics
-    start_file_count = len(comparison_dfs["start"])
-    end_file_count = len(comparison_dfs["end"])
+    start_file_count = len(start_df)
+    end_file_count = len(end_df)
     start_file_count_stat = mo.stat(label="Start file count", value=start_file_count)
     end_file_count_stat = mo.stat(label="End file count", value=end_file_count)
 
@@ -1224,8 +1234,8 @@ def _(comparison_dfs, convert_size, mo):
     )
 
     # Total storage statistics
-    start_storage = comparison_dfs["start"]["size"].sum()
-    end_storage = comparison_dfs["end"]["size"].sum()
+    start_storage = start_df["size"].sum()
+    end_storage = end_df["size"].sum()
     start_storage_stat = mo.stat(label="Start storage", value=convert_size(start_storage))
     end_storage_stat = mo.stat(label="End storage", value=convert_size(end_storage))
 
@@ -1239,8 +1249,8 @@ def _(comparison_dfs, convert_size, mo):
     )
 
     # New AIPs
-    end_uuids = set(comparison_dfs["end"]["uuid"].unique())
-    start_uuids = set(comparison_dfs["start"]["uuid"].unique())
+    end_uuids = set(end_df["uuid"].unique())
+    start_uuids = set(start_df["uuid"].unique())
     new_aip_uuids = end_uuids - start_uuids
     new_aips = mo.stat(label="New AIPs", value=f"{len(new_aip_uuids)}")
     return (
@@ -1259,18 +1269,19 @@ def _(comparison_dfs, convert_size, mo):
 
 @app.cell
 def _(
-    comparison_dfs,
     convert_size,
+    end_df,
     file_count_difference_by_field,
     mo,
     new_aip_uuids,
+    start_df,
     storage_difference_by_field,
 ):
     # Date range difference tables
 
     # File count difference by status
     file_count_difference_by_status_data = file_count_difference_by_field(
-        comparison_dfs, "status"
+        start_df, end_df, "status"
     )
     file_count_difference_by_status_table = mo.ui.table(
         file_count_difference_by_status_data,
@@ -1281,7 +1292,7 @@ def _(
 
     # Storage difference by bucket
     storage_difference_by_bucket_data = storage_difference_by_field(
-        comparison_dfs, "bucket"
+        start_df, end_df, "bucket"
     )
     storage_difference_by_bucket_table = mo.ui.table(
         storage_difference_by_bucket_data,
@@ -1292,7 +1303,7 @@ def _(
 
     # Storage difference by status
     storage_difference_by_status_data = storage_difference_by_field(
-        comparison_dfs, "status"
+        start_df, end_df, "status"
     )
     storage_difference_by_status_table = mo.ui.table(
         storage_difference_by_status_data,
@@ -1303,7 +1314,7 @@ def _(
 
     # Storage difference by preservation_level
     storage_difference_by_preservation_level_data = storage_difference_by_field(
-        comparison_dfs, "preservation_level"
+        start_df, end_df, "preservation_level"
     )
     storage_difference_by_preservation_level_table = mo.ui.table(
         storage_difference_by_preservation_level_data,
@@ -1313,7 +1324,7 @@ def _(
     )
 
     # Find largest added AIP by storage size
-    aip_sizes_end = comparison_dfs["end"].groupby("uuid")["size"].sum()
+    aip_sizes_end = end_df.groupby("uuid")["size"].sum()
     new_aip_sizes = aip_sizes_end[aip_sizes_end.index.isin(new_aip_uuids)]
     if len(new_aip_sizes) > 0:
         largest_aip_uuid = new_aip_sizes.idxmax()
