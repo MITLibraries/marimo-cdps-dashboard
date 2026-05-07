@@ -72,6 +72,7 @@ def _():
 def _(digitized_bag_ids, mo):
     # Functions
 
+    import datetime
     import io
     import logging
     import math
@@ -79,7 +80,6 @@ def _(digitized_bag_ids, mo):
     import os
     import re
     from collections.abc import Callable
-    from datetime import datetime, timedelta
     from pathlib import Path
     from urllib.parse import urlparse
 
@@ -459,7 +459,6 @@ def _(digitized_bag_ids, mo):
         pd,
         re,
         storage_difference_by_field,
-        timedelta,
         urlparse,
     )
 
@@ -508,10 +507,10 @@ def _(ClientError, boto3, logger, mo, os, re, urlparse):
 
 
 @app.cell
-def _(datetime, mo, timedelta):
+def _(datetime, mo):
     # Select date from calendar element
 
-    yesterday = (datetime.now() - timedelta(days=1)).date()
+    yesterday = (datetime.datetime.now() - datetime.timedelta(days=1)).date()
     date_selector = mo.ui.date(value=str(yesterday), label="Select inventory Date")
     date_selector
     return date_selector, yesterday
@@ -1144,26 +1143,47 @@ def _(
 
     # Organizes elements on the page vertically
     mo.vstack(
-        [mo.md("### Summary"), current_summary, data_category_accordion],
+        [mo.md("### Current Data Summary"), current_summary, data_category_accordion],
         gap=1,
     )
     return
 
 
 @app.cell
-def _(datetime, mo, timedelta, yesterday):
+def _(datetime, mo, yesterday):
     # Select date range for difference data points
 
-    last_year = (datetime.now() - timedelta(days=365)).date()
-    start_date_selector = mo.ui.date(value=str(last_year), label="Select Start Date")
+    start_date_default = datetime.date(2025, 10, 18)
+    start_date_selector = mo.ui.date(
+        value=str(start_date_default), label="Select Start Date"
+    )
     end_date_selector = mo.ui.date(value=str(yesterday), label="Select End Date")
-    mo.hstack([start_date_selector, end_date_selector])
+
+    date_selectors = mo.hstack([start_date_selector, end_date_selector])
+    mo.vstack([mo.md("### Difference summary for date range"), date_selectors])
     return end_date_selector, start_date_selector
 
 
 @app.cell
-def _(end_date_selector, mo, pd, start_date_selector, symlink_dict):
+def _(mo):
+    compare_button = mo.ui.run_button(label="Create difference summary")
+    compare_button
+    return (compare_button,)
+
+
+@app.cell
+def _(
+    compare_button,
+    end_date_selector,
+    mo,
+    pd,
+    start_date_selector,
+    symlink_dict,
+):
     # Verify start date is before end date and that data exists for the selected dates
+
+    mo.stop(not compare_button.value, mo.md("Click button to begin"))
+
     mo.stop(
         start_date_selector.value > end_date_selector.value,
         mo.md("Start date must be before end date, please select a valid date range"),
