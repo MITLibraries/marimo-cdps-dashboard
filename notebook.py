@@ -11,7 +11,7 @@
 
 import marimo
 
-__generated_with = "0.23.0"
+__generated_with = "0.23.5"
 app = marimo.App(width="medium")
 
 
@@ -32,16 +32,54 @@ def _(mo):
     return
 
 
-@app.cell(hide_code=True)
+@app.cell
 def _():
+    # IDs for bags that have been digitized outside of the Archivematica workflow
+    digitized_bag_ids = [
+        "6ba766c3-c778-4904-81c6-ebec0cb83f80",
+        "0855323e-fab7-4b4d-acbf-0c4e460a1122",
+        "253b2da4-03a7-4cc7-b0ff-60564ed21e27",
+        "4c347b0a-46b1-4e0b-8316-04e9bc076301",
+        "c6f6cbea-1afc-4cbc-bd36-7f0ea72efa79",
+        "d29b5d7b-536d-4cec-b954-ba845408eaf0",
+        "77d372d4-8dfa-4338-890c-341e45b856f8",
+        "c842a632-9b1b-431a-969a-7013e945d157",
+        "44b13df4-5892-424e-9db4-dc1d029df3f3",
+        "e4c2b563-ecdc-4c19-8d4b-e6e5fa3ef00d",
+        "75bbd422-b028-4697-9519-1eda0616bdf0",
+        "1d336b68-4a09-4ced-84ff-bfd819207f45",
+        "cf88c667-2841-42e0-8bce-dbf215c79dac",
+        "a5a873ad-8cbe-467a-9163-e8e00183689f",
+        "ed4bbf43-69d0-40cc-9a1b-5351226d2f05",
+        "9f2cfdd8-17bc-4967-b275-604adf4cbd4f",
+        "20d70ede-f395-4dc2-9886-e20911ad66e1",
+        "3d0c5d43-b951-43cf-a8c5-7092d96658c8",
+        "12246ea1-fa82-47e1-afc3-5146d37811f9",
+        "f9e267e5-9e30-4c25-a6c2-3a37abf35732",
+        "4419c268-d09d-42af-9aea-912c2d5fd722",
+        "9231dc94-01fc-42bf-a5fc-1f5f010bd111",
+        "4ef4b2aa-24ae-4579-a29f-0f696874b09e",
+        "3e161569-43d6-4c6f-aafd-f39723f5c0f8",
+        "b3719fa0-8b57-4c90-a40a-9e083e79858e",
+        "438964ce-6b7a-47c0-9c6a-f3995ed9842a",
+        "8f6e852d-1619-49c6-9279-c69f2fbf1125",
+        "f8bcf269-2869-49a9-aaa9-0f40837ac214",
+    ]
+    return (digitized_bag_ids,)
+
+
+@app.cell
+def _(digitized_bag_ids, mo):
     # Functions
+
+    import datetime
     import io
     import logging
     import math
     import mimetypes
     import os
     import re
-    from datetime import datetime, timedelta
+    from collections.abc import Callable
     from pathlib import Path
     from urllib.parse import urlparse
 
@@ -55,20 +93,122 @@ def _():
     logging.basicConfig(format="%(asctime)s %(levelname)s: %(message)s")
     logger.setLevel(logging.INFO)
 
-    def convert_size(size_bytes):
-        """Convert byte counts into a human readable format."""
-        if size_bytes == 0:
-            return "0B"
-        size_name = ("B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB")
-        i = math.floor(math.log(size_bytes, 1024))
-        p = math.pow(1024, i)
-        s = round(size_bytes / p, 2)
-        return f"{s} {size_name[i]}"
+    def create_dataframe_for_date(
+        s3_client, selected_date: str, symlink_uris: list, uri_cache: dict | None = None
+    ) -> tuple[pd.DataFrame, dict]:
+        """Orchestrate creation of processed inventory dataframe for a given date."""
+        if uri_cache is None:
+            uri_cache = {}
+
+        # Check if parquet URIs are already cached for this date
+        with mo.status.spinner(title=f"Loading inventory data for {selected_date}"):
+            if selected_date in uri_cache:
+                logger.info(f"Using cached parquet URIs for {selected_date}")
+                parquet_uris = uri_cache[selected_date]
+            else:
+                # Get parquet URIs from symlink files and cache them
+                logger.info(f"Fetching and caching parquet URIs for {selected_date}")
+                parquet_uris = get_parquet_uris_from_symlinks(s3_client, symlink_uris)
+                uri_cache[selected_date] = parquet_uris
+
+            # Create dataframes from parquet files
+            parquet_dfs = create_parquet_dataframes(s3_client, parquet_uris)
+
+        with mo.status.spinner(title=f"Processing inventory data for {selected_date}"):
+            # Process and return current inventory data
+            current_df = process_inventory_data(parquet_dfs)
+
+            # Transform current inventory dataframe
+            cdps_df = transform_cdps_data(current_df)
+
+        return cdps_df, uri_cache
+
+    def get_parquet_uris_from_symlinks(s3_client, symlink_uris: list) -> list:
+        """Retrieve parquet file URIs from symlink.txt files."""
+        parquet_uris = []
+        for symlink_uri in symlink_uris:
+            parsed_symlink = urlparse(symlink_uri)
+            symlink_bucket = parsed_symlink.netloc
+            symlink_key = parsed_symlink.path.lstrip("/")
+            try:
+                logger.info(
+                    f"Retrieving symlink file: s3://{symlink_bucket}/{symlink_key}"
+                )
+                response = s3_client.get_object(Bucket=symlink_bucket, Key=symlink_key)
+            except ClientError:
+                logger.exception("Client error while retrieving symlink.txt file:")
+                raise
+            parquet_uris.append(response["Body"].read().decode("utf-8"))
+        return parquet_uris
+
+    def create_parquet_dataframes(s3_client, parquet_uris: list) -> list:
+        """Retrieve parquet files from S3 and convert to dataframes."""
+        parquet_dfs = []
+        for parquet_uri in parquet_uris:
+            parsed_uri = urlparse(parquet_uri)
+            parquet_bucket = parsed_uri.netloc
+            parquet_key = parsed_uri.path.lstrip("/")
+            try:
+                logger.info(
+                    f"Retrieving parquet file: s3://{parquet_bucket}/{parquet_key}"
+                )
+                s3_object = s3_client.get_object(Bucket=parquet_bucket, Key=parquet_key)
+            except ClientError:
+                logger.exception("Client error while retrieving parquet file:")
+                raise
+            parquet_df = pd.read_parquet(io.BytesIO(s3_object["Body"].read()))
+            parquet_df.loc[:, "parquet_file"] = parquet_key.split("/")[-1]
+            parquet_dfs.append(parquet_df)
+        return parquet_dfs
+
+    def process_inventory_data(
+        dataframes: list,
+    ) -> pd.DataFrame:
+        """Process inventory dataframe to extract current objects.
+
+        Args:
+            dataframes: List of inventory DataFrames
+            logger: Logger instance
+
+        Returns:
+            DataFrame containing only current objects
+        """
+        # Concatenate and deduplicate
+        inventory_df = (
+            pd.concat(dataframes, ignore_index=True)
+            .drop_duplicates()
+            .reset_index(drop=True)
+        )
+
+        # Filter for current objects (not deleted, latest version)
+        inventory_df.loc[:, "is_current"] = (
+            inventory_df["is_latest"] & ~inventory_df["is_delete_marker"]
+        )
+        current_df = (
+            inventory_df.loc[inventory_df["is_current"]].copy().reset_index(drop=True)
+        )
+        logger.info(f"Current CDPS dataframe built with {len(current_df)} records.")
+        return current_df
+
+    def transform_cdps_data(dataframe: pd.DataFrame) -> pd.DataFrame:
+        """Apply all CDPS data transformations to the inventory dataframe."""
+        return (
+            dataframe.pipe(rename_bucket)
+            .pipe(parse_s3_keys)
+            .pipe(is_metadata)
+            .pipe(preservation_level)
+            .pipe(mime_types)
+            .pipe(is_digitized_aip)
+            .pipe(is_replica)
+            .pipe(is_normalized_file)
+            .pipe(set_status)
+            .pipe(is_av_image)
+        )
 
     def rename_bucket(dataframe: pd.DataFrame) -> pd.DataFrame:
-        """Extract AIPStore name from bucket field (e.g., 'aipstore1b')."""
+        """Extract label from bucket field (e.g., 'aipstore1b', 'dissemination')."""
         dataframe.loc[:, "bucket"] = dataframe["bucket"].str.extract(
-            r"(aipstore\d+[a-z]?)", expand=False
+            r"(aipstore\d+[a-z]?|dissemination|submission)", expand=False
         )
         return dataframe
 
@@ -156,7 +296,7 @@ def _():
             dataframe.accession_name.str.contains(digitized_aip_regex, regex=True),
             "Digitized",
             np.where(
-                dataframe.accession_name.isin(os.environ["DIGITIZED_BAG_IDS"].split(",")),
+                dataframe.uuid.isin(digitized_bag_ids),
                 "Digitized",
                 "Born Digital",
             ),
@@ -220,205 +360,196 @@ def _():
         )
         return dataframe
 
+    def convert_size(size_bytes):
+        """Convert byte counts into a human readable format."""
+        if size_bytes == 0:
+            return "0B"
+
+        # Detect if the value is negative before converting to absolute value
+        is_negative = size_bytes < 0
+        size_bytes = abs(size_bytes)
+
+        size_name = ("B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB")
+        i = math.floor(math.log(size_bytes, 1024))
+        p = math.pow(1024, i)
+        s = round(size_bytes / p, 2)
+        result = f"{s} {size_name[i]}"
+
+        if is_negative:
+            result = f"-{result}"
+        return result
+
+    def file_count_difference_by_field(
+        start_df: pd.DataFrame, end_df: pd.DataFrame, field: str
+    ) -> pd.DataFrame:
+        """Calculate file count difference grouped by a specified field."""
+        file_count_start = start_df.groupby(field).size()
+        file_count_end = end_df.groupby(field).size()
+        return _calculate_difference_by_field(
+            file_count_start, file_count_end, field, "start file count", "end file count"
+        )
+
+    def storage_difference_by_field(
+        start_df: pd.DataFrame, end_df: pd.DataFrame, group_field: str
+    ) -> pd.DataFrame:
+        """Calculate storage difference grouped by a specified field."""
+        end_storage = end_df.groupby(group_field)["size"].sum()
+        start_storage = start_df.groupby(group_field)["size"].sum()
+        return _calculate_difference_by_field(
+            start_storage,
+            end_storage,
+            group_field,
+            "start storage",
+            "end storage",
+            formatter=convert_size,
+        )
+
+    def _calculate_difference_by_field(
+        start_series: pd.Series,
+        end_series: pd.Series,
+        field_name: str,
+        start_label: str,
+        end_label: str,
+        formatter: Callable | None = None,
+    ) -> pd.Series:
+        """Calculate difference between two series."""
+        # Reindex both series to ensure all values are present
+        all_values = start_series.index.union(end_series.index)
+        start_series = start_series.reindex(all_values, fill_value=0)
+        end_series = end_series.reindex(all_values, fill_value=0)
+
+        # Calculate difference and create dataframe
+        difference_data = (
+            (end_series - start_series).sort_values(ascending=False).reset_index()
+        )
+        difference_data.columns = [field_name, "difference"]
+
+        # Add start and end values as columns
+        start_values = start_series.reindex(
+            difference_data[field_name], fill_value=0
+        ).to_numpy()
+        end_values = end_series.reindex(
+            difference_data[field_name], fill_value=0
+        ).to_numpy()
+        difference_data.insert(1, start_label, start_values)
+        difference_data.insert(2, end_label, end_values)
+
+        # Calculate percent difference
+        difference_data["percent difference"] = (
+            (difference_data["difference"].to_numpy() / start_values) * 100
+        ).round(2).astype(str) + "%"
+
+        # Apply formatter if provided
+        if formatter:
+            for field in [start_label, end_label, "difference"]:
+                difference_data[field] = difference_data[field].apply(formatter)
+
+        return difference_data
+
     return (
         ClientError,
         boto3,
         convert_size,
+        create_dataframe_for_date,
         datetime,
+        file_count_difference_by_field,
         go,
-        io,
-        is_av_image,
-        is_digitized_aip,
-        is_metadata,
-        is_normalized_file,
-        is_replica,
         logger,
-        mime_types,
         os,
-        parse_s3_keys,
         pd,
-        preservation_level,
         re,
-        rename_bucket,
-        set_status,
-        timedelta,
+        storage_difference_by_field,
         urlparse,
     )
 
 
-@app.cell(hide_code=True)
-def _(ClientError, boto3, logger, os, re, urlparse):
+@app.cell
+def _(ClientError, boto3, logger, mo, os, re, urlparse):
     # Get symlink files and dates as dict
     s3 = boto3.client("s3")
 
-    logger.info("Building symlink dict from S3 inventory locations")
+    logger.info("Building symlink dict from inventory locations")
     symlink_dict = {}
 
     # Iterate through the S3 inventory locations and build symlink dict
-    for s3_inventory_location in os.environ["S3_INVENTORY_LOCATIONS"].split(","):
-        logger.info(f"Retrieving symlink.txt files from: {s3_inventory_location}")
-        parsed_location = urlparse(s3_inventory_location)
-        inventory_bucket = parsed_location.netloc
-        inventory_prefix = parsed_location.path.lstrip("/")
+    with mo.status.spinner(title="Collecting inventory data..."):
+        for s3_inventory_location in os.environ["S3_INVENTORY_LOCATIONS"].split(","):
+            logger.info(f"Retrieving symlink.txt files from: {s3_inventory_location}")
+            parsed_location = urlparse(s3_inventory_location)
+            inventory_bucket = parsed_location.netloc
+            inventory_prefix = parsed_location.path.lstrip("/")
 
-        paginator = s3.get_paginator("list_objects_v2")
-        try:
-            for page in paginator.paginate(
-                Bucket=inventory_bucket, Prefix=inventory_prefix
-            ):
-                for obj in page.get("Contents", []):
-                    key = obj["Key"]
-                    if key.lower().endswith("symlink.txt"):
-                        if match := re.search(r"dt=\d{4}-\d{2}-\d{2}", key):
-                            date_string = match.group(0)[3:]
-                        else:
-                            raise ValueError(
-                                f"Could not parse datetime partition from uri: {key}"
+            paginator = s3.get_paginator("list_objects_v2")
+            try:
+                for page in paginator.paginate(
+                    Bucket=inventory_bucket, Prefix=inventory_prefix
+                ):
+                    for obj in page.get("Contents", []):
+                        key = obj["Key"]
+                        if key.lower().endswith("symlink.txt"):
+                            if match := re.search(r"dt=\d{4}-\d{2}-\d{2}", key):
+                                date_string = match.group(0)[3:]
+                            else:
+                                raise ValueError(
+                                    f"Could not parse datetime partition from uri: {key}"
+                                )
+
+                            if date_string not in symlink_dict:
+                                symlink_dict[date_string] = []
+                            symlink_dict[date_string].append(
+                                f"s3://{inventory_bucket}/{key}"
                             )
-
-                        if date_string not in symlink_dict:
-                            symlink_dict[date_string] = []
-                        symlink_dict[date_string].append(f"s3://{inventory_bucket}/{key}")
-        except ClientError:
-            logger.exception("Client error while retrieving symlink.txt files:")
-            raise
-    logger.info(f"Symlink dict built with {len(symlink_dict)} dates.")
+            except ClientError:
+                logger.exception("Client error while retrieving symlink.txt files:")
+                raise
+        logger.info(f"Symlink dict built with {len(symlink_dict)} dates.")
     return s3, symlink_dict
 
 
-@app.cell(hide_code=True)
-def _(datetime, mo, timedelta):
+@app.cell
+def _(datetime, mo):
     # Select date from calendar element
 
-    yesterday = (datetime.now() - timedelta(days=1)).date()
-    date_selector = mo.ui.date(value=str(yesterday), label="Select S3 Inventory Date")
+    yesterday = (datetime.datetime.now() - datetime.timedelta(days=1)).date()
+    date_selector = mo.ui.date(value=str(yesterday), label="Select inventory Date")
     date_selector
-    return (date_selector,)
+    return date_selector, yesterday
 
 
-@app.cell(hide_code=True)
+@app.cell
 def _(date_selector, mo, pd, symlink_dict):
-    # Retrieve parquet files from the selected date
+    # Verify data exists for the selected date
 
     selected_date = pd.to_datetime(date_selector.value).strftime("%Y-%m-%d")
 
     mo.stop(
         selected_date not in symlink_dict,
-        mo.md(f"No S3 Inventory data found for {selected_date}, select a different date"),
+        mo.md(f"No inventory data found for {selected_date}, select a different date"),
     )
     return (selected_date,)
 
 
-@app.cell(hide_code=True)
+@app.cell
 def _():
-    # Cache of parquet files URIs by date for efficient recall of previously used dates
-
+    # Initialize cache for parquet file URIs to minimize AWS calls
     parquet_file_uri_cache = {}
     return (parquet_file_uri_cache,)
 
 
-@app.cell(hide_code=True)
+@app.cell
 def _(
-    ClientError,
-    io,
-    logger,
-    mo,
+    create_dataframe_for_date,
     parquet_file_uri_cache,
-    pd,
     s3,
     selected_date,
     symlink_dict,
-    urlparse,
 ):
-    # Add parquet file URIs to cache if not already present
-    if not parquet_file_uri_cache.get(selected_date):
-        parquet_file_uris = []
-        for symlink in symlink_dict[selected_date]:
-            # Get parquet file URI from symlink.txt
-            parsed_symlink_file = urlparse(symlink)
-            symlink_bucket = parsed_symlink_file.netloc
-            symlink_key = parsed_symlink_file.path.lstrip("/")
-            try:
-                logger.info(
-                    f"Retrieving symlink file: s3://{symlink_bucket}/{symlink_key}"
-                )
-                response = s3.get_object(Bucket=symlink_bucket, Key=symlink_key)
-            except ClientError:
-                logger.exception("Client error while retrieving symlink.txt file:")
-                raise
-            parquet_file_uris.append(response["Body"].read().decode("utf-8"))
-        parquet_file_uri_cache[selected_date] = parquet_file_uris
-
-    # Retrieve parquet files
-    parquet_dfs = []
-    with mo.status.spinner(title="Loading S3 inventory data..."):
-        logger.info(f"Processing parquet file URIs for date: {selected_date}")
-        for parquet_file_uri in parquet_file_uri_cache[selected_date]:
-            # Parse parquet file URI
-            parsed_parquet_file_uri = urlparse(parquet_file_uri)
-            parquet_bucket = parsed_parquet_file_uri.netloc
-            parquet_key = parsed_parquet_file_uri.path.lstrip("/")
-
-            # Get parquet file and convert to dataframe
-            try:
-                logger.info(
-                    f"Retrieving parquet file: s3://{parquet_bucket}/{parquet_key}"
-                )
-                s3_object = s3.get_object(Bucket=parquet_bucket, Key=parquet_key)
-            except ClientError:
-                logger.exception("Client error while retrieving parquet file:")
-                raise
-            parquet_df = pd.read_parquet(io.BytesIO(s3_object["Body"].read()))
-            parquet_df.loc[:, "parquet_file"] = parquet_key.split("/")[-1]
-            parquet_dfs.append(parquet_df)
-
-        # Concatenate parquet dataframes
-        inventory_df = (
-            pd.concat(parquet_dfs, ignore_index=True)
-            .drop_duplicates()
-            .reset_index(drop=True)
-        )
-
-        # Keep only current objects in dataframe
-        inventory_df.loc[:, "is_current"] = (
-            inventory_df["is_latest"] & ~inventory_df["is_delete_marker"]
-        )
-        current_df = (
-            inventory_df.loc[inventory_df["is_current"]].copy().reset_index(drop=True)
-        )
-        logger.info(f"Current CDPS dataframe built with {len(current_df)} records.")
-    return (current_df,)
-
-
-@app.cell(hide_code=True)
-def _(
-    current_df,
-    is_av_image,
-    is_digitized_aip,
-    is_metadata,
-    is_normalized_file,
-    is_replica,
-    mime_types,
-    mo,
-    parse_s3_keys,
-    preservation_level,
-    rename_bucket,
-    set_status,
-):
-    # Update dataframe with additional metadata
-    with mo.status.spinner(title="Processing data..."):
-        cdps_df = (
-            current_df.pipe(rename_bucket)
-            .pipe(parse_s3_keys)
-            .pipe(is_metadata)
-            .pipe(preservation_level)
-            .pipe(mime_types)
-            .pipe(is_digitized_aip)
-            .pipe(is_replica)
-            .pipe(is_normalized_file)
-            .pipe(set_status)
-            .pipe(is_av_image)
-        )
+    # Create processed dataframe for selected date (cached for efficiency)
+    cdps_df, updated_uri_cache = create_dataframe_for_date(
+        s3, selected_date, symlink_dict[selected_date], parquet_file_uri_cache
+    )
+    # Update the cache in-place so it persists for future date selections
+    parquet_file_uri_cache.update(updated_uri_cache)
     return (cdps_df,)
 
 
@@ -551,7 +682,7 @@ def _(cdps_df, convert_size, go, mo):
     return (file_type_display,)
 
 
-@app.cell(hide_code=True)
+@app.cell
 def _(cdps_df, convert_size, go, mo):
     # Storage data
 
@@ -674,7 +805,7 @@ def _(cdps_df, convert_size, go, mo):
     return (storage_display,)
 
 
-@app.cell(hide_code=True)
+@app.cell
 def _(cdps_df, convert_size, mo):
     # AIPs
 
@@ -741,9 +872,6 @@ def _(cdps_df, convert_size, mo):
 @app.cell(hide_code=True)
 def _(cdps_df, convert_size, go, mo):
     # Born-digital vs. digitized content
-
-    # NOTE: the DIGITIZED_BAG_IDS env variable is not implemented yet pending further
-    # discussion so these data points are not fully accurate
 
     # Data views generated from filtered dataframes
     born_digital_digitized_size_data = (
@@ -939,13 +1067,13 @@ def _(cdps_df, convert_size, go, mo):
     return (original_files_display,)
 
 
-@app.cell(hide_code=True)
+@app.cell
 def _(cdps_df, convert_size, mo):
     # Summary stats
 
     total_files = mo.stat(
         label="Total files",
-        value=f"{len(cdps_df)}",
+        value=f"{len(cdps_df):,}",
     )
 
     total_storage = mo.stat(
@@ -983,7 +1111,7 @@ def _(mo):
     return (about_display,)
 
 
-@app.cell(hide_code=True)
+@app.cell
 def _(
     about_display,
     aip_display,
@@ -1015,14 +1143,287 @@ def _(
 
     # Organizes elements on the page vertically
     mo.vstack(
-        [mo.md("### Summary"), current_summary, data_category_accordion],
+        [mo.md("### Current Data Summary"), current_summary, data_category_accordion],
         gap=1,
     )
     return
 
 
 @app.cell
-def _():
+def _(datetime, mo, yesterday):
+    # Select date range for difference data points
+
+    start_date_default = datetime.date(2025, 10, 18)
+    start_date_selector = mo.ui.date(
+        value=str(start_date_default), label="Select Start Date"
+    )
+    end_date_selector = mo.ui.date(value=str(yesterday), label="Select End Date")
+
+    date_selectors = mo.hstack([start_date_selector, end_date_selector])
+    mo.vstack([mo.md("### Difference summary for date range"), date_selectors])
+    return end_date_selector, start_date_selector
+
+
+@app.cell
+def _(mo):
+    compare_button = mo.ui.run_button(label="Create difference summary")
+    compare_button
+    return (compare_button,)
+
+
+@app.cell
+def _(
+    compare_button,
+    end_date_selector,
+    mo,
+    pd,
+    start_date_selector,
+    symlink_dict,
+):
+    # Verify start date is before end date and that data exists for the selected dates
+
+    mo.stop(not compare_button.value, mo.md("Click button to begin"))
+
+    mo.stop(
+        start_date_selector.value > end_date_selector.value,
+        mo.md("Start date must be before end date, please select a valid date range"),
+    )
+
+    mo.stop(
+        start_date_selector.value == end_date_selector.value,
+        mo.md("Start date and end date must be different"),
+    )
+
+    start_date = pd.to_datetime(start_date_selector.value).strftime("%Y-%m-%d")
+    end_date = pd.to_datetime(end_date_selector.value).strftime("%Y-%m-%d")
+
+    for series_date in [start_date, end_date]:
+        mo.stop(
+            series_date not in symlink_dict,
+            mo.md(f"No inventory data found for {series_date}, select a different date"),
+        )
+    return end_date, start_date
+
+
+@app.cell
+def _(
+    create_dataframe_for_date,
+    end_date,
+    parquet_file_uri_cache,
+    s3,
+    start_date,
+    symlink_dict,
+):
+    # Create dataframes for both dates
+
+    comparison_dfs = {}
+    for date_key, date_value in {"start": start_date, "end": end_date}.items():
+        dataframe, comparison_cache = create_dataframe_for_date(
+            s3,
+            date_value,
+            symlink_dict[date_value],
+            parquet_file_uri_cache,
+        )
+        # Update the cache in-place so it persists for future date selections
+        parquet_file_uri_cache.update(comparison_cache)
+        comparison_dfs[date_key] = dataframe
+
+    start_df = comparison_dfs["start"]
+    end_df = comparison_dfs["end"]
+    return end_df, start_df
+
+
+@app.cell
+def _(convert_size, end_df, mo, start_df):
+    # Date range difference totals
+
+    # Total file count statistics
+    start_file_count = len(start_df)
+    end_file_count = len(end_df)
+    start_file_count_stat = mo.stat(label="Start file count", value=start_file_count)
+    end_file_count_stat = mo.stat(label="End file count", value=end_file_count)
+
+    total_file_count_difference = mo.stat(
+        label="Total file count difference",
+        value=f"{end_file_count - start_file_count:,}",
+    )
+
+    total_file_count_difference_percent = mo.stat(
+        label="Total file count difference percentage",
+        value=f"{round((end_file_count - start_file_count ) / start_file_count * 100, 2)} %",
+    )
+
+    # Total storage statistics
+    start_storage = start_df["size"].sum()
+    end_storage = end_df["size"].sum()
+    start_storage_stat = mo.stat(label="Start storage", value=convert_size(start_storage))
+    end_storage_stat = mo.stat(label="End storage", value=convert_size(end_storage))
+
+    total_storage_difference = mo.stat(
+        label="Total storage size difference",
+        value=f"{convert_size(end_storage - start_storage)}",
+    )
+    total_storage_difference_percent = mo.stat(
+        label="Total storage size difference percentage",
+        value=f"{round((end_storage - start_storage ) / start_storage * 100, 2)} %",
+    )
+
+    # New AIPs
+    end_uuids = set(end_df["uuid"].unique())
+    start_uuids = set(start_df["uuid"].unique())
+    new_aip_uuids = end_uuids - start_uuids
+    new_aips = mo.stat(label="New AIPs", value=f"{len(new_aip_uuids)}")
+    return (
+        end_file_count_stat,
+        end_storage_stat,
+        new_aip_uuids,
+        new_aips,
+        start_file_count_stat,
+        start_storage_stat,
+        total_file_count_difference,
+        total_file_count_difference_percent,
+        total_storage_difference,
+        total_storage_difference_percent,
+    )
+
+
+@app.cell
+def _(
+    convert_size,
+    end_df,
+    file_count_difference_by_field,
+    mo,
+    new_aip_uuids,
+    start_df,
+    storage_difference_by_field,
+):
+    # Date range difference tables
+
+    # File count difference by status
+    file_count_difference_by_status_data = file_count_difference_by_field(
+        start_df, end_df, "status"
+    )
+    file_count_difference_by_status_table = mo.ui.table(
+        file_count_difference_by_status_data,
+        label="File count difference by status",
+        selection=None,
+        page_size=25,
+    )
+
+    # Storage difference by bucket
+    storage_difference_by_bucket_data = storage_difference_by_field(
+        start_df, end_df, "bucket"
+    )
+    storage_difference_by_bucket_table = mo.ui.table(
+        storage_difference_by_bucket_data,
+        label="Storage size difference by bucket",
+        selection=None,
+        page_size=25,
+    )
+
+    # Storage difference by status
+    storage_difference_by_status_data = storage_difference_by_field(
+        start_df, end_df, "status"
+    )
+    storage_difference_by_status_table = mo.ui.table(
+        storage_difference_by_status_data,
+        label="Storage size difference by status",
+        selection=None,
+        page_size=25,
+    )
+
+    # Storage difference by preservation_level
+    storage_difference_by_preservation_level_data = storage_difference_by_field(
+        start_df, end_df, "preservation_level"
+    )
+    storage_difference_by_preservation_level_table = mo.ui.table(
+        storage_difference_by_preservation_level_data,
+        label="Storage size difference by preservation level",
+        selection=None,
+        page_size=25,
+    )
+
+    # Find largest added AIP by storage size
+    aip_sizes_end = end_df.groupby("uuid")["size"].sum()
+    new_aip_sizes = aip_sizes_end[aip_sizes_end.index.isin(new_aip_uuids)]
+    if len(new_aip_sizes) > 0:
+        largest_aip_uuid = new_aip_sizes.idxmax()
+        largest_aip_data = {
+            "UUID": [largest_aip_uuid],
+            "Size": [convert_size(new_aip_sizes[largest_aip_uuid])],
+        }
+    else:
+        largest_aip_data = {"NA": "No new AIPs during this period"}
+
+    largest_aip_table = mo.ui.table(
+        largest_aip_data,
+        label="Largest new AIP",
+        selection=None,
+    )
+    return (
+        file_count_difference_by_status_table,
+        largest_aip_table,
+        storage_difference_by_bucket_table,
+        storage_difference_by_preservation_level_table,
+        storage_difference_by_status_table,
+    )
+
+
+@app.cell
+def _(
+    end_file_count_stat,
+    end_storage_stat,
+    file_count_difference_by_status_table,
+    largest_aip_table,
+    mo,
+    new_aips,
+    start_file_count_stat,
+    start_storage_stat,
+    storage_difference_by_bucket_table,
+    storage_difference_by_preservation_level_table,
+    storage_difference_by_status_table,
+    total_file_count_difference,
+    total_file_count_difference_percent,
+    total_storage_difference,
+    total_storage_difference_percent,
+):
+    # Display data points for date range difference
+
+    start_end_display = mo.hstack(
+        [
+            start_file_count_stat,
+            end_file_count_stat,
+            start_storage_stat,
+            end_storage_stat,
+        ],
+        widths="equal",
+        gap=1,
+    )
+
+    total_difference_display = mo.hstack(
+        [
+            total_file_count_difference,
+            total_file_count_difference_percent,
+            total_storage_difference,
+            total_storage_difference_percent,
+            new_aips,
+        ],
+        widths="equal",
+        gap=1,
+    )
+
+    difference_display = mo.vstack(
+        [
+            start_end_display,
+            total_difference_display,
+            file_count_difference_by_status_table,
+            storage_difference_by_bucket_table,
+            storage_difference_by_status_table,
+            storage_difference_by_preservation_level_table,
+            largest_aip_table,
+        ]
+    )
+    difference_display
     return
 
 
