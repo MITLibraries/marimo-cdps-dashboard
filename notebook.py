@@ -201,6 +201,7 @@ def _(digitized_bag_ids, mo):
             .pipe(is_digitized_aip)
             .pipe(is_replica)
             .pipe(is_normalized_file)
+            .pipe(is_aip)
             .pipe(set_status)
             .pipe(is_av_image)
         )
@@ -343,15 +344,26 @@ def _(digitized_bag_ids, mo):
         )
         return dataframe
 
+    def is_aip(dataframe: pd.DataFrame) -> pd.DataFrame:
+        """Identifies files in AIP packages"""
+        dataframe.loc[:, "is_aip"] = np.where(
+            dataframe["bucket"].str.contains("aipstore"), True, False
+        )
+        return dataframe
+
     def set_status(dataframe: pd.DataFrame) -> pd.DataFrame:
         """Adds a status based on CDPS content categories."""
         dataframe.loc[:, "status"] = np.where(
             dataframe["is_replica"],
             "replica",
             np.where(
-                dataframe["is_normalized_file"],
-                "normalized/access",
-                np.where(dataframe["is_metadata"], "metadata", "original content"),
+                dataframe["is_metadata"],
+                "metadata",
+                np.where(
+                    dataframe["is_normalized_file"],
+                    "normalized/access",
+                    "original content",
+                ),
             ),
         )
         return dataframe
@@ -820,20 +832,19 @@ def _(cdps_df, convert_size, mo):
     # AIPs
 
     # Data views generated from filtered dataframes
-    total_aip_count = {"Total AIP count": cdps_df["uuid"].nunique()}
+    aip_df = cdps_df[cdps_df["is_aip"] == True]
+
+    total_aip_count = {"Total AIP count": aip_df["uuid"].nunique()}
 
     aip_count_by_bucket_data = (
-        cdps_df.groupby(["bucket"])["uuid"]
+        aip_df.groupby(["bucket"])["uuid"]
         .nunique()
         .sort_values(ascending=False)
         .reset_index()
     )
 
     aips_by_size_data = (
-        cdps_df.groupby("bagname")["size"]
-        .sum()
-        .sort_values(ascending=False)
-        .reset_index()
+        aip_df.groupby("bagname")["size"].sum().sort_values(ascending=False).reset_index()
     )
     largest_aip_by_size_data = {
         "Largest AIP by storage size": aips_by_size_data.loc[0].bagname,
@@ -841,7 +852,7 @@ def _(cdps_df, convert_size, mo):
     }
 
     aips_by_file_count_data = (
-        cdps_df.groupby("bagname")["size"]
+        aip_df.groupby("bagname")["size"]
         .count()
         .sort_values(ascending=False)
         .to_frame("file_count")
@@ -1077,8 +1088,8 @@ def _(cdps_df, convert_size, go, mo):
     return (original_files_display,)
 
 
-@app.cell
-def _(cdps_df, convert_size, mo):
+app._unparsable_cell(
+    r"""
     # Summary stats
 
     total_files = mo.stat(
@@ -1091,9 +1102,16 @@ def _(cdps_df, convert_size, mo):
         value=f"{convert_size(cdps_df["size"].sum())}",
     )
 
+    preserved_files = mo.stat(
+        lable ="Preserved files",
+        value=
+    )
+
     # Organizes the summary stats horizontally
     current_summary = mo.hstack([total_files, total_storage], widths="equal", gap=1)
-    return (current_summary,)
+    """,
+    name="_",
+)
 
 
 @app.cell(hide_code=True)
@@ -1156,6 +1174,11 @@ def _(
         [mo.md("### Current Data Summary"), current_summary, data_category_accordion],
         gap=1,
     )
+    return
+
+
+@app.cell
+def _():
     return
 
 
