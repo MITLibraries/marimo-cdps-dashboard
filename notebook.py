@@ -11,7 +11,7 @@
 
 import marimo
 
-__generated_with = "0.23.5"
+__generated_with = "0.23.6"
 app = marimo.App(width="medium")
 
 
@@ -269,7 +269,15 @@ def _(digitized_bag_ids, mo):
                             dataframe["bucket"].str.contains("5b")
                             | dataframe["bucket"].str.contains("5a"),
                             "Level 5",
-                            "ERROR",
+                            np.where(
+                                dataframe["bucket"].str.contains("dissemination"),
+                                "Level 0",
+                                np.where(
+                                    dataframe["bucket"].str.contains("submission"),
+                                    "Backlog",
+                                    "ERROR",
+                                ),
+                            ),
                         ),
                     ),
                 ),
@@ -327,7 +335,9 @@ def _(digitized_bag_ids, mo):
                     (dataframe["is_digitized_AIP"] == "Digitized")
                     & (dataframe.file.str.contains(".pdf")),
                     True,
-                    False,
+                    np.where(
+                        dataframe["bucket"].str.contains("dissemination"), True, False
+                    ),
                 ),
             ),
         )
