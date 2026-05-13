@@ -289,6 +289,10 @@ def _(digitized_bag_ids, mo):
     def mime_types(dataframe: pd.DataFrame) -> pd.DataFrame:
         """Add mime type based on file extension."""
         mimetypes.add_type("application/vnd.ms-outlook", ".msg")
+        mimetypes.add_type("text/plain", ".md5")
+        mimetypes.add_type("text/x-server-parsed-html", ".shtml")
+        mimetypes.add_type("application/warc", ".warc")
+        mimetypes.add_type("video/mxf", ".mxf")
         dataframe.loc[:, "mimetype"] = dataframe["extension"].apply(
             lambda extension: (
                 "unknown"
