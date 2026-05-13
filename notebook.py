@@ -887,7 +887,7 @@ def _(cdps_df, convert_size, mo):
         ],
         gap=1,
     )
-    return (aip_display,)
+    return aip_df, aip_display
 
 
 @app.cell(hide_code=True)
@@ -1088,8 +1088,8 @@ def _(cdps_df, convert_size, go, mo):
     return (original_files_display,)
 
 
-app._unparsable_cell(
-    r"""
+@app.cell
+def _(aip_df, cdps_df, convert_size, mo):
     # Summary stats
 
     total_files = mo.stat(
@@ -1102,16 +1102,20 @@ app._unparsable_cell(
         value=f"{convert_size(cdps_df["size"].sum())}",
     )
 
-    preserved_files = mo.stat(
-        lable ="Preserved files",
-        value=
+    preserved_files = mo.stat(label="Preserved files", value=f"{len(aip_df):,}")
+
+    preserved_storage = mo.stat(
+        label="Total preserved size",
+        value=f"{convert_size(aip_df["size"].sum())}",
     )
 
     # Organizes the summary stats horizontally
-    current_summary = mo.hstack([total_files, total_storage], widths="equal", gap=1)
-    """,
-    name="_",
-)
+    current_summary = mo.hstack(
+        [total_files, total_storage, preserved_files, preserved_storage],
+        widths="equal",
+        gap=1,
+    )
+    return (current_summary,)
 
 
 @app.cell(hide_code=True)
@@ -1174,11 +1178,6 @@ def _(
         [mo.md("### Current Data Summary"), current_summary, data_category_accordion],
         gap=1,
     )
-    return
-
-
-@app.cell
-def _():
     return
 
 
