@@ -794,6 +794,10 @@ def _(cdps_df, convert_size, go, mo):
         cdps_df.groupby("status")["size"].mean().apply(convert_size).to_dict()
     )
 
+    mean_file_size_by_preservation_level = (
+        cdps_df.groupby("preservation_level")["size"].mean().apply(convert_size).to_dict()
+    )
+
     # Organizes the data views into tables vertically with labels
     storage_display = mo.vstack(
         [
@@ -821,6 +825,10 @@ def _(cdps_df, convert_size, go, mo):
             mo.ui.table(mean_file_size, selection=None, page_size=25),
             mo.md("#### Mean file storage size by status"),
             mo.ui.table(mean_file_size_by_status, selection=None, page_size=25),
+            mo.md("#### Mean file storage size by preservation level"),
+            mo.ui.table(
+                mean_file_size_by_preservation_level, selection=None, page_size=25
+            ),
         ],
         gap=1,
     )
