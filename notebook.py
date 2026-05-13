@@ -1061,6 +1061,29 @@ def _(cdps_df, convert_size, go, mo):
         top10_original_files_mimetype_size_data.drop("bytes", axis=1)
     )
 
+    original_files_born_digital_digitized_size_data = (
+        original_files.groupby("is_digitized_AIP")["size"]
+        .sum()
+        .sort_values(ascending=False)
+        .reset_index()
+    )
+    original_files_born_digital_digitized_size_chart = go.Figure(
+        data=[
+            go.Pie(
+                labels=original_files_born_digital_digitized_size_data[
+                    "is_digitized_AIP"
+                ],
+                values=original_files_born_digital_digitized_size_data["size"],
+                title="Original files storage size by born-digital vs. digitized",
+            )
+        ]
+    )
+    original_files_born_digital_digitized_size_data = (
+        original_files_born_digital_digitized_size_data.assign(
+            size=lambda x: x["size"].apply(convert_size)
+        )
+    )
+
     # Organizes the data views into tables vertically with labels
     original_files_display = mo.vstack(
         [
@@ -1081,6 +1104,13 @@ def _(cdps_df, convert_size, go, mo):
             mo.ui.plotly(top10_original_files_mimetype_chart),
             mo.ui.table(
                 top10_original_files_mimetype_size_data, selection=None, page_size=25
+            ),
+            mo.md("#### Original files storage size by born-digital vs. digitized"),
+            mo.ui.plotly(original_files_born_digital_digitized_size_chart),
+            mo.ui.table(
+                original_files_born_digital_digitized_size_data,
+                selection=None,
+                page_size=25,
             ),
         ],
         gap=1,
@@ -1592,7 +1622,7 @@ def _(
             "Storage data compare:": storage_difference_display,
             "File count compare:": file_counts_difference_display,
             "File type compare:": file_type_difference_display,
-            "Archival information packages": preserved_difference_display,
+            "Archival information packages:": preserved_difference_display,
         },
     )
 
