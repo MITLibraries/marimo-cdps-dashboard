@@ -1123,18 +1123,21 @@ def _(mo):
     # About this notebook
 
     about_display = mo.md(
-        """ The notebook's data comes from the CDPS AIPstore buckets' AWS S3 inventories. The notebook can display data from any existing set of inventories. Use the calendar to select a date. Inventories are updated daily.
+        """ The notebook's data comes from the CDPS buckets' AWS S3 inventories. The notebook can display data from any existing set of inventories. Use the calendar to select a date. Inventories are updated daily. The notebook can also present a basic comparison of two dates, see the lower sections for more information.
 
-    The notebook categorizes files in ways that facilitate analysis. Here's a summary of the logic used to categorize the files:
-    - If a file has specific file names or is stored in specific directories that indicate it is descriptive or preservation metadata, it's status is categorized ***metadata***.
-    - If a file has an Archivematica file UUID appended to the filename, is a PDF in a digitized AIP, or is in a thumbnails directory, it's status is categorized ***normalized/access derivative***.
-    - If an AIP is a backup copy stored in redundant storage (4b or 5b), the files within it are given the status category ***replica copy***.
-    - Any file that is not a replica copy, a normalized/access derivative, or metadata is given the status category ***original content***.
-    - ***Mimetypes*** are estimated using the file's extension and the Python mimetypes library. File formats have not been validated in these datasets.
-    - If the AIP containing a file has a name indicating it came from MIT Libraries digitization workflows, the file is marked ***digitized***.
-    - Any files that are not in AIPs marked digitized are marked ***born-digital***.
+    The data includes the preservation storage buckets (AIPStores 1 through 5), the Submission bucket (for ingest and backlog storage), and the Dissemination bucket (for sharing access copies). The statistics often analyze all buckets but some, with notice and where appropriate, have been filtered to only analyze the preservation AIPStores.
 
     The notebook's data is intended for MIT Libraries staff use. It has minor redactions that protect data security and archive restrictions. The full AWS inventories remain restricted.
+
+    The notebook categorizes files in ways that facilitate analysis. Here's a summary of the logic used to categorize the files:
+    - ***Metadata:*** If a file has specific file names or is stored in specific directories that indicate it is descriptive or preservation metadata, it's status is categorized metadata.
+    - ***Normalized/access derivative:*** If a file has an Archivematica file UUID appended to the filename, is a PDF in a digitized AIP, is in a thumbnails directory, or is stored in the Dissemination bucket, it's status is categorized normalized/access derivative.
+    - ***Replica copy:*** If an AIP is a backup copy stored in redundant storage (4b or 5b), the files within it are given the status category replica copy.
+    - ***Original content:*** Any file that is not a replica copy, a normalized/access derivative, or metadata is given the status category original content.
+    - ***Mimetypes:*** Mimetypes are estimated using the file's extension and the Python mimetypes library. File formats have not been validated in these datasets.
+    - ***AIP:*** Any file that has gone through routine preservation workflows and is in an AIPStore bucket is marked as being part of an Archival Information Package (AIP).
+    - ***Digitized:*** If the AIP containing a file has a name indicating it came from MIT Libraries digitization workflows, the file is marked digitized.
+    - ***Born-digital:*** Any files that are not in AIPs marked digitized are marked born-digital.
 
     For more information about the Libraries' preservation infrastructure see [Repository and Digital Content Storage Systems and Services](https://mitlibraries.atlassian.net/wiki/x/AQDsEQE).
 
@@ -1175,7 +1178,7 @@ def _(
 
     # Organizes elements on the page vertically
     mo.vstack(
-        [mo.md("### Current Data Summary"), current_summary, data_category_accordion],
+        [mo.md("### CDPS Summary"), current_summary, data_category_accordion],
         gap=1,
     )
     return
