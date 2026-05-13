@@ -1237,7 +1237,7 @@ def _(datetime, mo, yesterday):
     end_date_selector = mo.ui.date(value=str(yesterday), label="Select End Date")
 
     date_selectors = mo.hstack([start_date_selector, end_date_selector])
-    mo.vstack([mo.md("### Difference summary for date range"), date_selectors])
+    mo.vstack([mo.md("### Compare two dates:"), date_selectors])
     return end_date_selector, start_date_selector
 
 
@@ -1601,9 +1601,67 @@ def _(end_df, mo, start_df, storage_difference_by_field):
 
 
 @app.cell
-def _(mo):
+def _(
+    end_df,
+    file_count_difference_by_field,
+    mo,
+    start_df,
+    storage_difference_by_field,
+):
     # file type differences
-    file_type_difference_display = mo.md("in draft")
+
+    # File type difference by extension
+    file_type_difference_by_extension_data = file_count_difference_by_field(
+        start_df, end_df, "extension"
+    )
+    file_type_difference_by_extension_table = mo.ui.table(
+        file_type_difference_by_extension_data,
+        label="File type growth by extension",
+        selection=None,
+        page_size=25,
+    )
+
+    # File type difference by mimetype
+    file_type_difference_by_mimetype_data = file_count_difference_by_field(
+        start_df, end_df, "mimetype"
+    )
+    file_type_difference_by_mimetype_table = mo.ui.table(
+        file_type_difference_by_mimetype_data,
+        label="File type growth by mimetype",
+        selection=None,
+        page_size=25,
+    )
+
+    # Storage difference by mimetype
+    storage_difference_by_mimetype_data = storage_difference_by_field(
+        start_df, end_df, "mimetype"
+    )
+    storage_difference_by_mimetype_table = mo.ui.table(
+        storage_difference_by_mimetype_data,
+        label="Storage size growth by mimetype",
+        selection=None,
+        page_size=25,
+    )
+
+    # Storage difference by extension
+    storage_difference_by_extension_data = storage_difference_by_field(
+        start_df, end_df, "extension"
+    )
+    storage_difference_by_extension_table = mo.ui.table(
+        storage_difference_by_extension_data,
+        label="Storage size growth by extension",
+        selection=None,
+        page_size=25,
+    )
+
+    file_type_difference_display = mo.vstack(
+        [
+            file_type_difference_by_extension_table,
+            file_type_difference_by_mimetype_table,
+            storage_difference_by_mimetype_table,
+            storage_difference_by_extension_table,
+        ]
+    )
     return (file_type_difference_display,)
 
 
