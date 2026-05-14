@@ -1196,7 +1196,9 @@ def _(mo):
 
     For more information about the Libraries' preservation infrastructure see [Repository and Digital Content Storage Systems and Services](https://mitlibraries.atlassian.net/wiki/x/AQDsEQE).
 
-    Have questions or comments? Contact the Digital Preservation Coordinator, Charlie Hosale (chosale@mit.edu)."""
+    The notebook's code is maintained in the MIT Libraries [GitHub marimo-cdps-dashboard repo](https://github.com/MITLibraries/marimo-cdps-dashboard).
+
+    Have questions or comments? Contact the Digital Preservation Coordinator (digitalpreservation@mit.edu)."""
     )
     return (about_display,)
 
@@ -1253,13 +1255,12 @@ def _(datetime, mo, yesterday):
     mo.vstack(
         [
             mo.md("""<hr class="dotted">
-
-    <style>
-    hr.dotted {
-        border-top: 8px dotted;
-        border-bottom: none;
-    }
-    </style>"""),
+                    <style>
+                    hr.dotted {
+                        border-top: 8px dotted;
+                        border-bottom: none;
+                        }
+                    </style>"""),
             mo.md("### Compare two dates:"),
             date_selectors,
         ]
@@ -1269,7 +1270,7 @@ def _(datetime, mo, yesterday):
 
 @app.cell
 def _(mo):
-    compare_button = mo.ui.run_button(label="Create difference summary")
+    compare_button = mo.ui.run_button(label="Create comparison")
     compare_button
     return (compare_button,)
 
@@ -1692,7 +1693,11 @@ def _(
 @app.cell
 def _(mo):
     # about comparison
-    about_comparison = mo.md("in draft")
+    about_comparison = mo.md(
+        """The notebook creates comparison statistics by comparing the inventories for the selected end date to the inventories for the selected start date. It does not comprehensively compare all data from the selected date range. For example, if an AIP was both added and deleted between the selected dates, the comparison statstics are unaware that it ever existed.\n
+    The comparison statistics analyze data from the preservation storage buckets (AIPStores 1 through 5), the Submission bucket, and the Dissemination bucket. The statistics usually analyze all buckets, but stats in the "archival information packages" section have been filtered to only analyze the preservation AIPStores."""
+    )
+
     return (about_comparison,)
 
 
