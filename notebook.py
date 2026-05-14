@@ -1042,6 +1042,14 @@ def _(cdps_df, convert_size, go, mo):
         .reset_index()
     )
 
+    original_files_preservation_level_file_count_data = (
+        original_files.groupby("preservation_level")
+        .size()
+        .to_frame("file count")
+        .sort_values(by="file count", ascending=False)
+        .reset_index()
+    )
+
     original_files_mimetype_size_data = (
         original_files.groupby("mimetype")["size"]
         .sum()
@@ -1119,6 +1127,11 @@ def _(cdps_df, convert_size, go, mo):
             ),
             mo.md("#### Original files storage size by born-digital vs. digitized"),
             mo.ui.plotly(original_files_born_digital_digitized_size_chart),
+            mo.ui.table(
+                original_files_preservation_level_file_count_data,
+                selection=None,
+                page_size=25,
+            ),
             mo.ui.table(
                 original_files_born_digital_digitized_size_data,
                 selection=None,
@@ -1237,7 +1250,20 @@ def _(datetime, mo, yesterday):
     end_date_selector = mo.ui.date(value=str(yesterday), label="Select End Date")
 
     date_selectors = mo.hstack([start_date_selector, end_date_selector])
-    mo.vstack([mo.md("### Compare two dates:"), date_selectors])
+    mo.vstack(
+        [
+            mo.md("""<hr class="dotted">
+
+    <style>
+    hr.dotted {
+        border-top: 8px dotted;
+        border-bottom: none;
+    }
+    </style>"""),
+            mo.md("### Compare two dates:"),
+            date_selectors,
+        ]
+    )
     return end_date_selector, start_date_selector
 
 
@@ -1259,7 +1285,7 @@ def _(
 ):
     # Verify start date is before end date and that data exists for the selected dates
 
-    mo.stop(not compare_button.value, mo.md("Click button to begin"))
+    mo.stop(not compare_button.value, mo.md("Select two dates and click button to begin"))
 
     mo.stop(
         start_date_selector.value > end_date_selector.value,
@@ -1499,7 +1525,6 @@ def _(convert_size, end_aip_df, mo, start_aip_df):
             largest_aip_table,
         ]
     )
-
     return (preserved_difference_display,)
 
 
@@ -1596,7 +1621,6 @@ def _(end_df, mo, start_df, storage_difference_by_field):
             storage_difference_by_preservation_level_table,
         ]
     )
-
     return (storage_difference_display,)
 
 
