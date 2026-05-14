@@ -349,7 +349,7 @@ def _(digitized_bag_ids, mo):
         return dataframe
 
     def is_aip(dataframe: pd.DataFrame) -> pd.DataFrame:
-        """Identifies files in AIP packages"""
+        """Identifies files in AIP packages."""
         dataframe.loc[:, "is_aip"] = np.where(
             dataframe["bucket"].str.contains("aipstore"), True, False
         )
@@ -844,7 +844,7 @@ def _(cdps_df, convert_size, mo):
     # AIPs
 
     # Data views generated from filtered dataframes
-    aip_df = cdps_df[cdps_df["is_aip"] == True]
+    aip_df = cdps_df[cdps_df["is_aip"]]
 
     total_aip_count = {"Total AIP count": aip_df["uuid"].nunique()}
 
@@ -1334,8 +1334,8 @@ def _(
 
     start_df = comparison_dfs["start"]
     end_df = comparison_dfs["end"]
-    start_aip_df = start_df[start_df["is_aip"] == True]
-    end_aip_df = end_df[end_df["is_aip"] == True]
+    start_aip_df = start_df[start_df["is_aip"]]
+    end_aip_df = end_df[end_df["is_aip"]]
     return end_aip_df, end_df, start_aip_df, start_df
 
 
