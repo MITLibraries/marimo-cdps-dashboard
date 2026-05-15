@@ -405,23 +405,23 @@ def _(digitized_bag_ids, mo):
             result = f"-{result}"
         return result
 
-    def file_count_difference_by_field(
+    def file_count_growth_by_field(
         start_df: pd.DataFrame, end_df: pd.DataFrame, field: str
     ) -> pd.DataFrame:
-        """Calculate file count difference grouped by a specified field."""
+        """Calculate file count growth grouped by a specified field."""
         file_count_start = start_df.groupby(field).size()
         file_count_end = end_df.groupby(field).size()
-        return _calculate_difference_by_field(
+        return _calculate_growth_by_field(
             file_count_start, file_count_end, field, "start file count", "end file count"
         )
 
-    def storage_difference_by_field(
+    def storage_growth_by_field(
         start_df: pd.DataFrame, end_df: pd.DataFrame, group_field: str
     ) -> pd.DataFrame:
-        """Calculate storage difference grouped by a specified field."""
+        """Calculate storage growth grouped by a specified field."""
         end_storage = end_df.groupby(group_field)["size"].sum()
         start_storage = start_df.groupby(group_field)["size"].sum()
-        return _calculate_difference_by_field(
+        return _calculate_growth_by_field(
             start_storage,
             end_storage,
             group_field,
@@ -430,7 +430,7 @@ def _(digitized_bag_ids, mo):
             formatter=convert_size,
         )
 
-    def _calculate_difference_by_field(
+    def _calculate_growth_by_field(
         start_series: pd.Series,
         end_series: pd.Series,
         field_name: str,
@@ -438,39 +438,37 @@ def _(digitized_bag_ids, mo):
         end_label: str,
         formatter: Callable | None = None,
     ) -> pd.Series:
-        """Calculate difference between two series."""
+        """Calculate growth between two series."""
         # Reindex both series to ensure all values are present
         all_values = start_series.index.union(end_series.index)
         start_series = start_series.reindex(all_values, fill_value=0)
         end_series = end_series.reindex(all_values, fill_value=0)
 
-        # Calculate difference and create dataframe
-        difference_data = (
+        # Calculate growth and create dataframe
+        growth_data = (
             (end_series - start_series).sort_values(ascending=False).reset_index()
         )
-        difference_data.columns = [field_name, "growth"]
+        growth_data.columns = [field_name, "growth"]
 
         # Add start and end values as columns
         start_values = start_series.reindex(
-            difference_data[field_name], fill_value=0
+            growth_data[field_name], fill_value=0
         ).to_numpy()
-        end_values = end_series.reindex(
-            difference_data[field_name], fill_value=0
-        ).to_numpy()
-        difference_data.insert(1, start_label, start_values)
-        difference_data.insert(2, end_label, end_values)
+        end_values = end_series.reindex(growth_data[field_name], fill_value=0).to_numpy()
+        growth_data.insert(1, start_label, start_values)
+        growth_data.insert(2, end_label, end_values)
 
-        # Calculate percent difference
-        difference_data["percent growth"] = (
-            (difference_data["growth"].to_numpy() / start_values) * 100
+        # Calculate percent growth
+        growth_data["percent growth"] = (
+            (growth_data["growth"].to_numpy() / start_values) * 100
         ).round(2).astype(str) + "%"
 
         # Apply formatter if provided
         if formatter:
             for field in [start_label, end_label, "growth"]:
-                difference_data[field] = difference_data[field].apply(formatter)
+                growth_data[field] = growth_data[field].apply(formatter)
 
-        return difference_data
+        return growth_data
 
     return (
         ClientError,
@@ -478,13 +476,13 @@ def _(digitized_bag_ids, mo):
         convert_size,
         create_dataframe_for_date,
         datetime,
-        file_count_difference_by_field,
+        file_count_growth_by_field,
         go,
         logger,
         os,
         pd,
         re,
-        storage_difference_by_field,
+        storage_growth_by_field,
         urlparse,
     )
 
@@ -1243,7 +1241,7 @@ def _(
 
 @app.cell
 def _(datetime, mo, yesterday):
-    # Select date range for difference data points
+    # Select date range for growth data points
 
     start_date_default = datetime.date(2025, 10, 18)
     start_date_selector = mo.ui.date(
@@ -1341,7 +1339,7 @@ def _(
 
 @app.cell(hide_code=True)
 def _(convert_size, end_df, mo, start_df):
-    # Date range difference totals summary
+    # Date range growth totals summary
 
     # Total file count statistics
     start_file_count = len(start_df)
@@ -1349,12 +1347,12 @@ def _(convert_size, end_df, mo, start_df):
     start_file_count_stat = mo.stat(label="Start file count", value=start_file_count)
     end_file_count_stat = mo.stat(label="End file count", value=end_file_count)
 
-    total_file_count_difference = mo.stat(
+    total_file_count_growth = mo.stat(
         label="Total file count growth",
         value=f"{end_file_count - start_file_count:,}",
     )
 
-    total_file_count_difference_percent = mo.stat(
+    total_file_count_growth_percent = mo.stat(
         label="Total file count growth percentage",
         value=f"{round((end_file_count - start_file_count ) / start_file_count * 100, 2)} %",
     )
@@ -1365,33 +1363,33 @@ def _(convert_size, end_df, mo, start_df):
     start_storage_stat = mo.stat(label="Start storage", value=convert_size(start_storage))
     end_storage_stat = mo.stat(label="End storage", value=convert_size(end_storage))
 
-    total_storage_difference = mo.stat(
+    total_storage_growth = mo.stat(
         label="Total storage size growth",
         value=f"{convert_size(end_storage - start_storage)}",
     )
-    total_storage_difference_percent = mo.stat(
+    total_storage_growth_percent = mo.stat(
         label="Total storage size growth percentage",
         value=f"{round((end_storage - start_storage ) / start_storage * 100, 2)} %",
     )
 
     # displays
-    file_change_display = mo.hstack(
+    file_compare_display = mo.hstack(
         [
             start_file_count_stat,
             end_file_count_stat,
-            total_file_count_difference,
-            total_file_count_difference_percent,
+            total_file_count_growth,
+            total_file_count_growth_percent,
         ],
         widths="equal",
         gap=1,
     )
 
-    storage_change_display = mo.hstack(
+    storage_compare_display = mo.hstack(
         [
             start_storage_stat,
             end_storage_stat,
-            total_storage_difference,
-            total_storage_difference_percent,
+            total_storage_growth,
+            total_storage_growth_percent,
         ],
         widths="equal",
         gap=1,
@@ -1399,10 +1397,10 @@ def _(convert_size, end_df, mo, start_df):
 
     comparison_summary = mo.vstack(
         [
-            mo.md("_File count changes:_"),
-            file_change_display,
-            mo.md("_Storage size changes:_"),
-            storage_change_display,
+            mo.md("_File count growth:_"),
+            file_compare_display,
+            mo.md("_Storage size growth:_"),
+            storage_compare_display,
         ]
     )
     return (comparison_summary,)
@@ -1422,12 +1420,12 @@ def _(convert_size, end_aip_df, mo, start_aip_df):
         label="End preserved file count", value=end_preserved_file_count
     )
 
-    preserved_file_count_difference = mo.stat(
+    preserved_file_count_growth = mo.stat(
         label="Preserved file count growth",
         value=f"{end_preserved_file_count - start_preserved_file_count:,}",
     )
 
-    preserved_file_count_difference_percent = mo.stat(
+    preserved_file_count_growth_percent = mo.stat(
         label="Preserved file count growth percentage",
         value=f"{round((end_preserved_file_count - start_preserved_file_count ) / start_preserved_file_count * 100, 2)} %",
     )
@@ -1442,11 +1440,11 @@ def _(convert_size, end_aip_df, mo, start_aip_df):
         label="End preserved storage", value=convert_size(end_preserved_storage)
     )
 
-    preserved_storage_difference = mo.stat(
+    preserved_storage_growth = mo.stat(
         label="Preserved storage size growth",
         value=f"{convert_size(end_preserved_storage - start_preserved_storage)}",
     )
-    preserved_storage_difference_percent = mo.stat(
+    preserved_storage_growth_percent = mo.stat(
         label="Preserved storage size growth percentage",
         value=f"{round((end_preserved_storage - start_preserved_storage ) / start_preserved_storage * 100, 2)} %",
     )
@@ -1461,28 +1459,26 @@ def _(convert_size, end_aip_df, mo, start_aip_df):
     deleted_aip_uuids = start_uuids - end_uuids
     deleted_aips = mo.stat(label="Deleted AIPs", value=f"{len(deleted_aip_uuids)}")
 
-    # Difference in AIP counts
-    change_aip_uuids = len(end_aip_df["uuid"].unique()) - len(
+    # growth in AIP counts
+    growth_aip_uuids = len(end_aip_df["uuid"].unique()) - len(
         start_aip_df["uuid"].unique()
     )
-    change_aips = mo.stat(label="Growth in total AIPs", value=f"{change_aip_uuids}")
+    growth_aips = mo.stat(label="Growth in total AIPs", value=f"{growth_aip_uuids}")
 
     # Find largest added AIP by storage size
     aip_sizes_end = end_aip_df.groupby("uuid")["size"].sum()
     new_aip_sizes = aip_sizes_end[aip_sizes_end.index.isin(new_aip_uuids)]
     if len(new_aip_sizes) > 0:
         largest_aip_uuid = new_aip_sizes.idxmax()
-        largest_aip_data = {
-            "UUID": [largest_aip_uuid],
-            "Size": [convert_size(new_aip_sizes[largest_aip_uuid])],
-        }
+        largest_aip_data = str(
+            largest_aip_uuid + " (" + convert_size(new_aip_sizes[largest_aip_uuid]) + ")"
+        )
     else:
-        largest_aip_data = {"NA": "No new AIPs during this period"}
+        largest_aip_data = {"NA: No new AIPs during this period"}
 
-    largest_aip_table = mo.ui.table(
-        largest_aip_data,
-        label="Largest new AIP",
-        selection=None,
+    largest_aip_table = mo.stat(
+        label="Largest AIP added",
+        value=largest_aip_data,
     )
 
     # Displays
@@ -1491,8 +1487,8 @@ def _(convert_size, end_aip_df, mo, start_aip_df):
         [
             start_preserved_file_count_stat,
             end_preserved_file_count_stat,
-            preserved_file_count_difference,
-            preserved_file_count_difference_percent,
+            preserved_file_count_growth,
+            preserved_file_count_growth_percent,
         ],
         widths="equal",
         gap=1,
@@ -1502,112 +1498,108 @@ def _(convert_size, end_aip_df, mo, start_aip_df):
         [
             start_preserved_storage_stat,
             end_preserved_storage_stat,
-            preserved_storage_difference,
-            preserved_storage_difference_percent,
+            preserved_storage_growth,
+            preserved_storage_growth_percent,
         ],
         widths="equal",
         gap=1,
     )
 
     aips_display = mo.hstack(
-        [new_aips, deleted_aips, change_aips],
+        [new_aips, deleted_aips, growth_aips],
         widths="equal",
         gap=1,
     )
 
-    preserved_difference_display = mo.vstack(
+    preserved_growth_display = mo.vstack(
         [
-            mo.md("_AIP count changes:_"),
+            mo.md("_AIP count growth:_"),
             aips_display,
-            mo.md("_AIP file count changes:_"),
+            mo.md("_AIP file count growth:_"),
             preserved_file_display,
-            mo.md("_AIP storage size changes:_"),
+            mo.md("_AIP storage size growths:_"),
             preserved_storage_display,
             largest_aip_table,
         ]
     )
-    return (preserved_difference_display,)
+    return (preserved_growth_display,)
 
 
 @app.cell
-def _(end_df, file_count_difference_by_field, mo, start_df):
-    # File changes:
+def _(end_df, file_count_growth_by_field, mo, start_df):
+    # File count growth:
 
-    # File count difference by bucket
-    file_count_difference_by_bucket_data = file_count_difference_by_field(
+    # File count growth by bucket
+    file_count_growth_by_bucket_data = file_count_growth_by_field(
         start_df, end_df, "bucket"
     )
-    file_count_difference_by_bucket_table = mo.ui.table(
-        file_count_difference_by_bucket_data,
+    file_count_growth_by_bucket_table = mo.ui.table(
+        file_count_growth_by_bucket_data,
         label="File count growth by bucket",
         selection=None,
         page_size=25,
     )
 
-    # File count difference by status
-    file_count_difference_by_status_data = file_count_difference_by_field(
+    # File count growth by status
+    file_count_growth_by_status_data = file_count_growth_by_field(
         start_df, end_df, "status"
     )
-    file_count_difference_by_status_table = mo.ui.table(
-        file_count_difference_by_status_data,
+    file_count_growth_by_status_table = mo.ui.table(
+        file_count_growth_by_status_data,
         label="File count growth by status",
         selection=None,
         page_size=25,
     )
 
-    # File count difference by preservation_level
-    file_count_difference_by_preservation_level_data = file_count_difference_by_field(
+    # File count growth by preservation_level
+    file_count_growth_by_preservation_level_data = file_count_growth_by_field(
         start_df, end_df, "preservation_level"
     )
-    file_count_difference_by_preservation_level_table = mo.ui.table(
-        file_count_difference_by_preservation_level_data,
+    file_count_growth_by_preservation_level_table = mo.ui.table(
+        file_count_growth_by_preservation_level_data,
         label="File count growth by preservation level",
         selection=None,
         page_size=25,
     )
 
-    file_counts_difference_display = mo.vstack(
+    file_counts_growth_display = mo.vstack(
         [
-            file_count_difference_by_bucket_table,
-            file_count_difference_by_status_table,
-            file_count_difference_by_preservation_level_table,
+            file_count_growth_by_bucket_table,
+            file_count_growth_by_status_table,
+            file_count_growth_by_preservation_level_table,
         ]
     )
-    return (file_counts_difference_display,)
+    return (file_counts_growth_display,)
 
 
 @app.cell
-def _(end_df, mo, start_df, storage_difference_by_field):
-    # Storage changes
+def _(end_df, mo, start_df, storage_growth_by_field):
+    # Storage size growth
 
-    # Storage difference by bucket
-    storage_difference_by_bucket_data = storage_difference_by_field(
-        start_df, end_df, "bucket"
-    )
-    storage_difference_by_bucket_table = mo.ui.table(
-        storage_difference_by_bucket_data,
+    # Storage growth by bucket
+    storage_growth_by_bucket_data = storage_growth_by_field(start_df, end_df, "bucket")
+    storage_growth_by_bucket_table = mo.ui.table(
+        storage_growth_by_bucket_data,
         label="Storage size growth by bucket",
         selection=None,
         page_size=25,
     )
 
-    # Storage difference by status
-    storage_difference_by_status_data = storage_difference_by_field(
-        start_df, end_df, "status"
-    )
-    storage_difference_by_status_table = mo.ui.table(
-        storage_difference_by_status_data,
+    # Storage growth by status
+    storage_growth_by_status_data = storage_growth_by_field(start_df, end_df, "status")
+    storage_growth_by_status_table = mo.ui.table(
+        storage_growth_by_status_data,
         label="Storage size growth by status",
         selection=None,
         page_size=25,
     )
 
-    # Storage difference by preservation_level
-    storage_difference_by_preservation_level_data = storage_difference_by_field(
+    # Storage growth by preservation_level
+    storage_growth_by_preservation_level_data = storage_growth_by_field(
         start_df, end_df, "preservation_level"
     )
-    storage_difference_by_preservation_level_table = mo.ui.table(
-        storage_difference_by_preservation_level_data,
+    storage_growth_by_preservation_level_table = mo.ui.table(
+        storage_growth_by_preservation_level_data,
         label="Storage size growth by preservation level",
         selection=None,
         page_size=25,
@@ -1615,79 +1607,79 @@ def _(end_df, mo, start_df, storage_difference_by_field):
 
     # display
 
-    storage_difference_display = mo.vstack(
+    storage_growth_display = mo.vstack(
         [
-            storage_difference_by_bucket_table,
-            storage_difference_by_status_table,
-            storage_difference_by_preservation_level_table,
+            storage_growth_by_bucket_table,
+            storage_growth_by_status_table,
+            storage_growth_by_preservation_level_table,
         ]
     )
-    return (storage_difference_display,)
+    return (storage_growth_display,)
 
 
 @app.cell
 def _(
     end_df,
-    file_count_difference_by_field,
+    file_count_growth_by_field,
     mo,
     start_df,
-    storage_difference_by_field,
+    storage_growth_by_field,
 ):
-    # file type differences
+    # file type growth
 
-    # File type difference by extension
-    file_type_difference_by_extension_data = file_count_difference_by_field(
+    # File type growth by extension
+    file_type_growth_by_extension_data = file_count_growth_by_field(
         start_df, end_df, "extension"
     )
-    file_type_difference_by_extension_table = mo.ui.table(
-        file_type_difference_by_extension_data,
+    file_type_growth_by_extension_table = mo.ui.table(
+        file_type_growth_by_extension_data,
         label="File type growth by extension",
         selection=None,
         page_size=25,
     )
 
-    # File type difference by mimetype
-    file_type_difference_by_mimetype_data = file_count_difference_by_field(
+    # File type growth by mimetype
+    file_type_growth_by_mimetype_data = file_count_growth_by_field(
         start_df, end_df, "mimetype"
     )
-    file_type_difference_by_mimetype_table = mo.ui.table(
-        file_type_difference_by_mimetype_data,
+    file_type_growth_by_mimetype_table = mo.ui.table(
+        file_type_growth_by_mimetype_data,
         label="File type growth by mimetype",
         selection=None,
         page_size=25,
     )
 
-    # Storage difference by mimetype
-    storage_difference_by_mimetype_data = storage_difference_by_field(
+    # Storage growth by mimetype
+    storage_growth_by_mimetype_data = storage_growth_by_field(
         start_df, end_df, "mimetype"
     )
-    storage_difference_by_mimetype_table = mo.ui.table(
-        storage_difference_by_mimetype_data,
+    storage_growth_by_mimetype_table = mo.ui.table(
+        storage_growth_by_mimetype_data,
         label="Storage size growth by mimetype",
         selection=None,
         page_size=25,
     )
 
-    # Storage difference by extension
-    storage_difference_by_extension_data = storage_difference_by_field(
+    # Storage growth by extension
+    storage_growth_by_extension_data = storage_growth_by_field(
         start_df, end_df, "extension"
     )
-    storage_difference_by_extension_table = mo.ui.table(
-        storage_difference_by_extension_data,
+    storage_growth_by_extension_table = mo.ui.table(
+        storage_growth_by_extension_data,
         label="Storage size growth by extension",
         selection=None,
         page_size=25,
     )
 
-    file_type_difference_display = mo.vstack(
+    file_type_growth_display = mo.vstack(
         [
-            file_type_difference_by_extension_table,
-            file_type_difference_by_mimetype_table,
-            storage_difference_by_mimetype_table,
-            storage_difference_by_extension_table,
+            file_type_growth_by_extension_table,
+            file_type_growth_by_mimetype_table,
+            storage_growth_by_mimetype_table,
+            storage_growth_by_extension_table,
         ]
     )
-    return (file_type_difference_display,)
+    return (file_type_growth_display,)
 
 
 @app.cell
@@ -1697,7 +1689,6 @@ def _(mo):
         """The notebook creates comparison statistics by comparing the inventories for the selected end date to the inventories for the selected start date. It does not comprehensively compare all data from the selected date range. For example, if an AIP was both added and deleted between the selected dates, the comparison statstics are unaware that it ever existed.\n
     The comparison statistics analyze data from the preservation storage buckets (AIPStores 1 through 5), the Submission bucket, and the Dissemination bucket. The statistics usually analyze all buckets, but stats in the "archival information packages" section have been filtered to only analyze the preservation AIPStores."""
     )
-
     return (about_comparison,)
 
 
@@ -1705,23 +1696,23 @@ def _(mo):
 def _(
     about_comparison,
     comparison_summary,
-    file_counts_difference_display,
-    file_type_difference_display,
+    file_counts_growth_display,
+    file_type_growth_display,
     mo,
-    preserved_difference_display,
-    storage_difference_display,
+    preserved_growth_display,
+    storage_growth_display,
 ):
     # Comparison Dashboard
 
     # Collects all the data displays with labels in an accordion element
-    data_difference_category_accordion = mo.accordion(
+    data_growth_category_accordion = mo.accordion(
         lazy=True,
         items={
             "About this data comparison:": about_comparison,
-            "Storage data compare:": storage_difference_display,
-            "File count compare:": file_counts_difference_display,
-            "File type compare:": file_type_difference_display,
-            "Archival information packages:": preserved_difference_display,
+            "Storage data compare:": storage_growth_display,
+            "File count compare:": file_counts_growth_display,
+            "File type compare:": file_type_growth_display,
+            "Archival information packages:": preserved_growth_display,
         },
     )
 
@@ -1730,7 +1721,7 @@ def _(
         [
             mo.md("### Comparison Summary"),
             comparison_summary,
-            data_difference_category_accordion,
+            data_growth_category_accordion,
         ],
         gap=1,
     )
