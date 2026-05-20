@@ -1183,8 +1183,8 @@ def _(mo):
     The notebook's data is intended for MIT Libraries staff use. It has minor redactions that protect data security and archive restrictions. The full AWS inventories remain restricted.
 
     The notebook categorizes files in ways that facilitate analysis. Here's a summary of the logic used to categorize the files:
-    - ***Metadata:*** If a file has specific file names or is stored in specific directories that indicate it is descriptive or preservation metadata, it's status is categorized metadata.
-    - ***Normalized/access derivative:*** If a file has an Archivematica file UUID appended to the filename, is a PDF in a digitized AIP, is in a thumbnails directory, or is stored in the Dissemination bucket, it's status is categorized normalized/access derivative.
+    - ***Metadata:*** If a file has specific file names or is stored in specific directories that indicate it is descriptive or preservation metadata, its status is categorized metadata.
+    - ***Normalized/access derivative:*** If a file has an Archivematica file UUID appended to the filename, is a PDF in a digitized AIP, is in a thumbnails directory, or is stored in the Dissemination bucket, its status is categorized normalized/access derivative.
     - ***Replica copy:*** If an AIP is a backup copy stored in redundant storage (4b or 5b), the files within it are given the status category replica copy.
     - ***Original content:*** Any file that is not a replica copy, a normalized/access derivative, or metadata is given the status category original content.
     - ***Mimetypes:*** Mimetypes are estimated using the file's extension and the Python mimetypes library. File formats have not been validated in these datasets.
