@@ -411,7 +411,7 @@ def _(digitized_bag_ids, mo):
         """Calculate file count growth grouped by a specified field."""
         file_count_start = start_df.groupby(field).size()
         file_count_end = end_df.groupby(field).size()
-        return _calculate_growth_by_field(
+        return calculate_growth_by_field(
             file_count_start, file_count_end, field, "start file count", "end file count"
         )
 
@@ -421,7 +421,7 @@ def _(digitized_bag_ids, mo):
         """Calculate storage growth grouped by a specified field."""
         end_storage = end_df.groupby(group_field)["size"].sum()
         start_storage = start_df.groupby(group_field)["size"].sum()
-        return _calculate_growth_by_field(
+        return calculate_growth_by_field(
             start_storage,
             end_storage,
             group_field,
@@ -430,7 +430,7 @@ def _(digitized_bag_ids, mo):
             formatter=convert_size,
         )
 
-    def _calculate_growth_by_field(
+    def calculate_growth_by_field(
         start_series: pd.Series,
         end_series: pd.Series,
         field_name: str,
