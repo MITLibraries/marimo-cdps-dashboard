@@ -56,7 +56,7 @@ ruff: # Run 'ruff' linter and print a preview of errors
 	uv run ruff check .
 
 safety: # Check for security vulnerabilities
-	uv run pip-audit --ignore-vuln PYSEC-2026-89
+	uv run pip-audit
 
 lint-apply: black-apply ruff-apply # Apply changes with 'black' and resolve 'fixable errors' with 'ruff'
 
