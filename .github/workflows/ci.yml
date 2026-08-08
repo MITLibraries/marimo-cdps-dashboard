@@ -21,7 +21,7 @@ jobs:
           make coveralls
 
       - name: Coveralls
-        uses: coverallsapp/github-action@v2.3.0
+        uses: coverallsapp/github-action@v2.3.7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           fail-on-error: false
