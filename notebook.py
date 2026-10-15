@@ -2,7 +2,9 @@
 # requires-python = ">=3.13"
 # dependencies = [
 #     "boto3",
+#     "botocore==1.43.113",
 #     "marimo",
+#     "numpy==2.5.4",
 #     "pandas",
 #     "plotly",
 #     "pyarrow",
@@ -72,7 +74,7 @@ def _():
 def _(digitized_bag_ids, mo):
     # Functions
 
-    import datetime
+    import datetime as dt
     import io
     import logging
     import math
@@ -125,7 +127,7 @@ def _(digitized_bag_ids, mo):
 
     def get_parquet_uris_from_symlinks(s3_client, symlink_uris: list) -> list:
         """Retrieve parquet file URIs from symlink.txt files."""
-        parquet_uris = []
+        parquet_uris: list[str] = []
         for symlink_uri in symlink_uris:
             parsed_symlink = urlparse(symlink_uri)
             symlink_bucket = parsed_symlink.netloc
@@ -138,10 +140,17 @@ def _(digitized_bag_ids, mo):
             except ClientError:
                 logger.exception("Client error while retrieving symlink.txt file:")
                 raise
-            parquet_uris.append(response["Body"].read().decode("utf-8"))
+            symlink_contents = response["Body"].read().decode("utf-8")
+            parquet_uris.extend(
+                parquet_uri.strip()
+                for parquet_uri in symlink_contents.splitlines()
+                if parquet_uri.strip()
+            )
         return parquet_uris
 
-    def create_parquet_dataframes(s3_client, parquet_uris: list) -> list:
+    def create_parquet_dataframes(
+        s3_client, parquet_uris: list[str]
+    ) -> list[pd.DataFrame]:
         """Retrieve parquet files from S3 and convert to dataframes."""
         parquet_dfs = []
         for parquet_uri in parquet_uris:
@@ -162,7 +171,7 @@ def _(digitized_bag_ids, mo):
         return parquet_dfs
 
     def process_inventory_data(
-        dataframes: list,
+        dataframes: list[pd.DataFrame],
     ) -> pd.DataFrame:
         """Process inventory dataframe to extract current objects.
 
@@ -475,7 +484,7 @@ def _(digitized_bag_ids, mo):
         boto3,
         convert_size,
         create_dataframe_for_date,
-        datetime,
+        dt,
         file_count_growth_by_field,
         go,
         logger,
@@ -531,10 +540,10 @@ def _(ClientError, boto3, logger, mo, os, re, urlparse):
 
 
 @app.cell
-def _(datetime, mo):
+def _(dt, mo):
     # Select date from calendar element
 
-    yesterday = (datetime.datetime.now() - datetime.timedelta(days=1)).date()
+    yesterday = (dt.datetime.now() - dt.timedelta(days=1)).date()
     date_selector = mo.ui.date(value=str(yesterday), label="Select inventory Date")
     date_selector
     return date_selector, yesterday
@@ -1240,10 +1249,10 @@ def _(
 
 
 @app.cell
-def _(datetime, mo, yesterday):
+def _(dt, mo, yesterday):
     # Select date range for growth data points
 
-    start_date_default = datetime.date(2025, 10, 18)
+    start_date_default = dt.date(2025, 10, 18)
     start_date_selector = mo.ui.date(
         value=str(start_date_default), label="Select Start Date"
     )
