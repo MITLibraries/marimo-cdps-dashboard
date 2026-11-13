@@ -1161,14 +1161,14 @@ def _(aip_df, cdps_df, convert_size, mo):
 
     total_storage = mo.stat(
         label="Total storage size",
-        value=f"{convert_size(cdps_df["size"].sum())}",
+        value=f"{convert_size(cdps_df['size'].sum())}",
     )
 
     preserved_files = mo.stat(label="Preserved files", value=f"{len(aip_df):,}")
 
     preserved_storage = mo.stat(
         label="Total preserved size",
-        value=f"{convert_size(aip_df["size"].sum())}",
+        value=f"{convert_size(aip_df['size'].sum())}",
     )
 
     # Organizes the summary stats horizontally
@@ -1363,7 +1363,7 @@ def _(convert_size, end_df, mo, start_df):
 
     total_file_count_growth_percent = mo.stat(
         label="Total file count growth percentage",
-        value=f"{round((end_file_count - start_file_count ) / start_file_count * 100, 2)} %",
+        value=f"{round((end_file_count - start_file_count) / start_file_count * 100, 2)} %",
     )
 
     # Total storage statistics
@@ -1378,7 +1378,7 @@ def _(convert_size, end_df, mo, start_df):
     )
     total_storage_growth_percent = mo.stat(
         label="Total storage size growth percentage",
-        value=f"{round((end_storage - start_storage ) / start_storage * 100, 2)} %",
+        value=f"{round((end_storage - start_storage) / start_storage * 100, 2)} %",
     )
 
     # displays
@@ -1436,7 +1436,7 @@ def _(convert_size, end_aip_df, mo, start_aip_df):
 
     preserved_file_count_growth_percent = mo.stat(
         label="Preserved file count growth percentage",
-        value=f"{round((end_preserved_file_count - start_preserved_file_count ) / start_preserved_file_count * 100, 2)} %",
+        value=f"{round((end_preserved_file_count - start_preserved_file_count) / start_preserved_file_count * 100, 2)} %",
     )
 
     # Preserved total storage statistics
@@ -1455,7 +1455,7 @@ def _(convert_size, end_aip_df, mo, start_aip_df):
     )
     preserved_storage_growth_percent = mo.stat(
         label="Preserved storage size growth percentage",
-        value=f"{round((end_preserved_storage - start_preserved_storage ) / start_preserved_storage * 100, 2)} %",
+        value=f"{round((end_preserved_storage - start_preserved_storage) / start_preserved_storage * 100, 2)} %",
     )
 
     # New AIPs
