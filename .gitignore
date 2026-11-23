@@ -209,3 +209,5 @@ __marimo__/
 AGENTS.md
 
 .idea
+.arch_tag
+.tool-versions

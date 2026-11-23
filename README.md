@@ -27,6 +27,19 @@ To run linting:
 make lint
 ```
 
+To auto-fix formatting and fixable lint issues:
+
+```shell
+make lint-fix
+```
+
+### Security
+To scan dependencies for known vulnerabilities:
+
+```shell
+make security
+```
+
 ## Environment Variables
 
 ### Required

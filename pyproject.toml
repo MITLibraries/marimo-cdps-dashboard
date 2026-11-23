@@ -12,7 +12,6 @@ dotenv = [".env"]
 
 [dependency-groups]
 dev = [
-    "black>=25.1.0",
     "coveralls>=4.0.1",
     "ipython>=9.4.0",
     "mypy>=1.17.1",
@@ -21,9 +20,6 @@ dev = [
     "pytest>=8.4.1",
     "ruff>=0.12.8",
 ]
-
-[tool.black]
-line-length = 90
 
 # full mypy linting by default
 [tool.mypy]
@@ -77,6 +73,7 @@ ignore = [
     "PTH",
     "PLW0108",
     "S321",
+    "TD002",
     "TD003",
     "TRY003"
 ]
